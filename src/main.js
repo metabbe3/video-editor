@@ -552,6 +552,8 @@ export class App {
       if ((e.code === 'Delete' || e.code === 'Backspace') && /BODY/.test(e.target.tagName)) this.deleteClipAt(this.selectedClipIndex ?? tl.segmentAt(t));
       if (e.code === 'KeyI') this.trimAtPlayhead('in');
       if (e.code === 'KeyO') this.trimAtPlayhead('out');
+      if (e.code === 'KeyQ') this.rippleToPlayhead('left');
+      if (e.code === 'KeyW') this.rippleToPlayhead('right');
     });
   }
 
@@ -1119,6 +1121,40 @@ export class App {
     const tl = timelineOf(p.edl);
     this.trimSegment(tl.segmentAt(this.preview.editedTime()), edge, this.preview.editedTime());
     this.refreshDerived();
+  }
+  // Ripple trim (owner 1 Nov, ala CapCut "delete to playhead"): Q = buang semua sebelum
+  // playhead, W = buang semua sesudah. Klip yang tertimpa playhead di-trim tepat di situ.
+  rippleToPlayhead(side) {
+    const p = this.project;
+    if (!p.edl || p.edl.keep.length < 2) return this.toast('Need 2+ clips to ripple');
+    const tl = timelineOf(p.edl);
+    const t = this.preview.editedTime();
+    const m = tl.editedToSource(t);
+    const i = m ? m.seg : null;
+    if (i == null) return this.toast('Nothing to ripple');
+    const keep = p.edl.keep;
+    let next, toastMsg;
+    if (side === 'left') {
+      if (i === 0 && keep[0].in + 0.2 >= m.src) return this.toast('Already at start');
+      this.pushUndo();
+      next = keep.slice(i);
+      if (m.src > next[0].in + 0.05) next[0] = { ...next[0], in: m.src };
+      toastMsg = 'Ripple: cut left (⌘Z)';
+    } else {
+      if (i === keep.length - 1 && keep[keep.length - 1].out - 0.2 <= m.src) return this.toast('Already at end');
+      this.pushUndo();
+      next = keep.slice(0, i + 1);
+      const last = next[next.length - 1];
+      if (m.src < last.out - 0.05) next[next.length - 1] = { ...last, out: m.src };
+      toastMsg = 'Ripple: cut right (⌘Z)';
+    }
+    if (next.some((k) => k.out - k.in < 0.05)) { this.undoStack.pop(); return this.toast('Too close to an edge'); }
+    p.edl = { ...p.edl, keep: next, punches: (p.edl.punches || []).filter((x) => x.at <= tl.duration), transitions: transitionsFor(next) };
+    this.preview.setEdl(p.edl, { keepTime: side === 'right' });
+    this.renderTranscript();
+    this.drawAll();
+    this.scheduleSave();
+    this.toast(toastMsg);
   }
   splitAt(t) {
     const p = this.project;

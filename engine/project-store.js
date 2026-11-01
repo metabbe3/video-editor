@@ -22,7 +22,22 @@ export function openProjectDb(idb = globalThis.indexedDB) {
         db.createObjectStore(STORE_NAME);
       }
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // self-heal (lesson 1 Nov): db bisa exist di DB_VERSION tanpa store (dibuat saat tab crash
+      // di tengah upgrade, atau oleh open tanpa versi) — open(vSAMA) tidak melepas upgradeneeded,
+      // jadi cek eksplisit; kalau store hilang, tutup + reopen dengan versi +1 utk paksa upgrade.
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        const broken = db.version;
+        db.close();
+        const fix = idb.open(DB_NAME, broken + 1);
+        fix.onupgradeneeded = () => { if (!fix.result.objectStoreNames.contains(STORE_NAME)) fix.result.createObjectStore(STORE_NAME); };
+        fix.onsuccess = () => resolve(fix.result);
+        fix.onerror = () => reject(fix.error);
+        return;
+      }
+      resolve(db);
+    };
     req.onerror = () => reject(req.error);
   });
 }
