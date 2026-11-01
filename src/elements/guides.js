@@ -10,8 +10,8 @@ export function drawGuides(ctx, w, h, mode) {
   if (mode === 'off') return;
   ctx.save();
   if (mode === 'safe') {
-    ctx.fillStyle = 'rgba(217,119,87,0.18)';
-    ctx.strokeStyle = 'rgba(217,119,87,0.8)';
+    ctx.fillStyle = 'rgba(31,111,235,0.18)';
+    ctx.strokeStyle = 'rgba(31,111,235,0.8)';
     ctx.setLineDash([8, 6]);
     ctx.lineWidth = 2;
     ctx.fillRect(0, 0, w, h * 0.14);
@@ -20,7 +20,7 @@ export function drawGuides(ctx, w, h, mode) {
     ctx.fillRect(w * 0.94, 0, w * 0.06, h);
     ctx.strokeRect(w * 0.06, h * 0.14, w * 0.88, h * 0.51);
   } else if (mode === 'grid') {
-    ctx.strokeStyle = 'rgba(217,119,87,0.55)';
+    ctx.strokeStyle = 'rgba(31,111,235,0.55)';
     ctx.setLineDash([10, 8]);
     ctx.lineWidth = 1.5;
     for (let i = 1; i <= 2; i++) {

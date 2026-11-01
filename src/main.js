@@ -768,7 +768,7 @@ export class App {
     const w = this.project.words[i];
     const input = document.createElement('input');
     input.value = w.w;
-    input.style.cssText = 'font:inherit;font-size:13px;width:80px;border:1px solid var(--clay);border-radius:4px;background:var(--bg)';
+    input.style.cssText = 'font:inherit;font-size:13px;width:80px;border:1px solid var(--accent);border-radius:4px;background:var(--bg)';
     span.textContent = '';
     span.appendChild(input);
     input.focus(); input.select();
@@ -1117,8 +1117,8 @@ export class App {
       };
       add('🔪', e.rhythmArgument, 'var(--danger)');
       add('✍️', e.scriptwriterCounter, 'var(--ok)');
-      add('👉', e.managerialVerdict, 'var(--clay)');
-      if (e.scoreImpact) { const s = document.createElement('span'); s.textContent = e.scoreImpact; s.style.cssText = 'font-size:11px;color:var(--clay);font-weight:600'; item.appendChild(s); }
+      add('👉', e.managerialVerdict, 'var(--accent)');
+      if (e.scoreImpact) { const s = document.createElement('span'); s.textContent = e.scoreImpact; s.style.cssText = 'font-size:11px;color:var(--accent);font-weight:600'; item.appendChild(s); }
       body.appendChild(item);
     }
     if (!(d.log || []).length) { const e2 = document.createElement('div'); e2.textContent = '(no contested moments — the council agreed immediately)'; e2.style.color = 'var(--ink-2)'; body.appendChild(e2); }
@@ -1204,7 +1204,7 @@ export class App {
       const bar = document.createElement('div');
       bar.style.cssText = 'flex:1;height:4px;border-radius:2px;background:var(--border-soft);overflow:hidden';
       const fill = document.createElement('div');
-      fill.style.cssText = `height:100%;width:${v}%;background:var(--clay);transition:width .3s cubic-bezier(.16,1,.3,1)`;
+      fill.style.cssText = `height:100%;width:${v}%;background:var(--accent);transition:width .3s cubic-bezier(.16,1,.3,1)`;
       bar.appendChild(fill);
       const num = document.createElement('span');
       num.style.width = '24px';

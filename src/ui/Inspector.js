@@ -89,7 +89,7 @@ export function renderInspector(app) {
     const on = effects.some((e) => e.id === id && e.on !== false);
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${on ? ';background:var(--clay);color:#fff;border-color:var(--clay)' : ''}`;
+    b.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${on ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
     b.textContent = def.label;
     b.onclick = () => {
       const next = on
@@ -130,7 +130,7 @@ export function renderInspector(app) {
     const on = (k.mask?.shape ?? 'none') === s;
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = `width:auto;padding:2px 8px;font-size:11.5px${on ? ';background:var(--clay);color:#fff;border-color:var(--clay)' : ''}`;
+    b.style.cssText = `width:auto;padding:2px 8px;font-size:11.5px${on ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
     b.textContent = s === 'cinematic-bars' ? 'bars' : s;
     b.onclick = () => app.mutateClip(i, {
       mask: s === 'none' ? undefined : { shape: s, x: 0.5, y: 0.5, w: s === 'split' || s === 'cinematic-bars' ? 1 : 0.7, h: s === 'split' || s === 'cinematic-bars' ? 1 : 0.7, feather: 0.06, invert: false },
@@ -164,7 +164,7 @@ export function renderInspector(app) {
     const inv = document.createElement('input');
     inv.type = 'checkbox';
     inv.checked = !!k.mask.invert;
-    inv.style.accentColor = 'var(--clay)';
+    inv.style.accentColor = 'var(--accent)';
     inv.onchange = () => app.mutateClip(i, { mask: { ...k.mask, invert: inv.checked } });
     invRow.append(invLab, inv);
     el.appendChild(invRow);

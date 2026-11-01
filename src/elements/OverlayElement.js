@@ -6,7 +6,7 @@ import { EASE } from '../../engine/motion.js';
 const TEXT_PRESETS = {
   title: { size: 0.065, y: 0.16, color: '#fff', stroke: '#111', weight: 900, upper: true, rot: 0 },
   subtitle: { size: 0.042, y: 0.84, color: '#fff', bg: 'rgba(20,18,12,0.82)', weight: 700, upper: false, rot: 0 },
-  pop: { size: 0.055, y: 0.3, color: '#ffe9d9', stroke: '#b4532f', weight: 900, upper: true, rot: -0.03 },
+  pop: { size: 0.055, y: 0.3, color: '#ffe9d9', stroke: '#1557c9', weight: 900, upper: true, rot: -0.03 },
 };
 
 export class OverlayElement {
@@ -64,7 +64,7 @@ export class OverlayElement {
     }
     // vector shapes (no stroke, filled — cheap and legible)
     const r = size * (0.85 + 0.15 * pop);
-    ctx.fillStyle = o.color ?? '#d97757';
+    ctx.fillStyle = o.color ?? '#1f6feb';
     ctx.beginPath();
     if (o.shape === 'rect') ctx.rect(-r * 1.2, -r * 0.8, r * 2.4, r * 1.6);
     else if (o.shape === 'ellipse') ctx.ellipse(0, 0, r, r, 0, 0, Math.PI * 2);

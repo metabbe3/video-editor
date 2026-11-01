@@ -31,7 +31,14 @@ export const TUNING = {
 };
 
 // Heuristic filler set (zero-key mode). GLM judges the nuanced cases ("like").
-export const FILLER_RE = /^(u+m+|u+h+|e+r+m+|h+m+|m+-?h+m+|mhm|mm+|ah+|eh+)[.,!?]*$/i;
+export const FILLER_RE = /^(u+m+|u+h+|e+r+m+|h+m+|m+-?h+m+|mhm|mm+|ah+|eh+|anu+|e+u+m+|e+hm+|hm+|y+a+h+o+|yaudah+|kira2|gitu deh|gitu dah)[.,!?]*$/i;
+// Filler Indonesia (debat 1 Nov P1): 'gitu', 'nah', 'jadi', 'kan', 'ya' hanya filler
+// di posisi ulang — jangan potong kata bermakna di kalimat. Deteksi frasa multi-kata:
+export const FILLER_ID_PHRASES = [
+  'nah jadi', 'jadi gimana', 'gimana ya', 'apa namanya', 'apa namanya ya',
+  'gitu loh', 'gitu ya', 'gitu kan', 'kan gitu', 'ya kan', 'tapi ya',
+  'jadi ya', 'kalau gitu', 'terus ya', 'pokoknya ya',
+];
 export const FILLERS_PHRASES = ['you know', 'i mean', 'sort of', 'kind of'];
 
 /** phonetic brand-term corrections (word TEXTS only — timestamps untouched) */
@@ -135,6 +142,20 @@ export function heuristicKeeps(words, duration, { silence = [], energy = null, h
   // 1. standalone filler words — cut TIGHT at word boundaries (word removal, not
   // silence removal: the big pads would eat most of a 0.2s "um")
   for (const w of words) if (FILLER_RE.test(w.w)) add(w.start - 0.02, w.end + 0.06, `filler: ${w.w}`);
+
+  // 1b. Indonesian filler PHRASES (multi-word) — joined lowercase text, position-aware
+  // (debat 1 Nov P1: 'nah jadi', 'gitu ya', 'apa namanya' dsb.)
+  const textAt = (i) => words[i].w.toLowerCase().replace(/[.,!?;:]+$/, '');
+  for (let i = 0; i < words.length - 1; i++) {
+    for (const ph of FILLER_ID_PHRASES) {
+      const parts = ph.split(' ');
+      let match = true;
+      for (let j = 0; j < parts.length; j++) {
+        if (i + j >= words.length || textAt(i + j) !== parts[j]) { match = false; break; }
+      }
+      if (match) { add(words[i].start - 0.02, words[i + parts.length - 1].end + 0.06, `filler-id: ${ph}`); i += parts.length - 1; break; }
+    }
+  }
 
   // 2. long pauses from the silence map (cut centered on the energy minimum)
   for (const s of silence) {

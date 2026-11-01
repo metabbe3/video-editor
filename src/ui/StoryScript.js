@@ -30,14 +30,14 @@ export function renderStoryScript(container, app) {
     head.style.cssText = 'display:flex;gap:8px;align-items:baseline;font-size:11px;color:var(--ink-2);margin-bottom:4px';
     const badge = document.createElement('span');
     badge.textContent = roleBadge(k.why, i, p.edl.keep.length - 1);
-    badge.style.cssText = 'color:var(--clay);font-weight:600';
+    badge.style.cssText = 'color:var(--accent);font-weight:600';
     const time = document.createElement('span');
     time.style.fontFamily = 'var(--mono)';
     time.textContent = `${fmt(t0)}–${fmt(t1)}`;
     const src = document.createElement('span');
     src.textContent = `src ${fmt(k.in)}`;
     const score = document.createElement('span');
-    if (k.score) { score.textContent = `· ${k.score}`; score.style.color = 'var(--clay)'; }
+    if (k.score) { score.textContent = `· ${k.score}`; score.style.color = 'var(--accent)'; }
     head.append(badge, time, src, score);
     const body = document.createElement('div');
     body.style.cssText = 'font-size:13.5px;line-height:1.6';
@@ -47,7 +47,7 @@ export function renderStoryScript(container, app) {
     card.ondragstart = (e) => e.dataTransfer.setData('text/plain', String(i));
     card.oncontextmenu = (e) => { e.preventDefault(); app.storyMenu(e, i); };
     if (k.locked) { card.style.borderColor = 'var(--kraft, #d4a373)'; badge.textContent = '🔒 ' + badge.textContent; }
-    card.ondragover = (e) => { e.preventDefault(); card.style.borderColor = 'var(--clay)'; };
+    card.ondragover = (e) => { e.preventDefault(); card.style.borderColor = 'var(--accent)'; };
     card.ondragleave = () => { card.style.borderColor = 'var(--border-soft)'; };
     card.ondrop = (e) => {
       e.preventDefault();

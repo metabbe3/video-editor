@@ -109,7 +109,7 @@ export class ProgressBar {
     const p = Math.max(0, Math.min(1, t / Math.max(0.001, this.tl.duration)));
     const bar = Math.max(3, h * 0.004);
     ctx.save();
-    ctx.fillStyle = 'rgba(217,119,87,0.9)';
+    ctx.fillStyle = 'rgba(31,111,235,0.9)';
     ctx.fillRect(0, h - bar, w * p, bar);
     ctx.restore();
   }

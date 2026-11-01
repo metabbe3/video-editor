@@ -48,7 +48,7 @@ export function createTimelineView(canvas, host) {
     ctx.save();
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, W, H);
-    const ink = col('--ink'), ink2 = col('--ink-2'), clay = col('--clay'),
+    const ink = col('--ink'), ink2 = col('--ink-2'), clay = col('--accent'),
       border = col('--border-soft'), raise = col('--bg-raise');
     if (!edl) {
       ctx.fillStyle = ink2; ctx.font = '12px ' + col('--sans')?.replace?.(/,.*/, '') || '12px sans-serif';
@@ -93,7 +93,7 @@ export function createTimelineView(canvas, host) {
       const s = tl.segments[i];
       const x0 = xOf(tl.starts[i]), x1 = xOf(tl.starts[i] + s.dur);
       const y = vRow.y + 5, h = vRow.h - 10;
-      ctx.fillStyle = i === tl.segmentAt(playT) ? clay : 'rgba(217,119,87,0.55)';
+      ctx.fillStyle = i === tl.segmentAt(playT) ? clay : 'rgba(31,111,235,0.55)';
       roundRect(ctx, x0, y, Math.max(2, x1 - x0), h, 5); ctx.fill();
       if (s.freeze > 0) { // freeze tail: frosted strip at the clip's end
         const playW = ((s.out - s.in) / s.rate / s.dur) * (x1 - x0);
@@ -186,7 +186,7 @@ export function createTimelineView(canvas, host) {
     for (const c of captionsOf(edl)) {
       const x0 = xOf(c.t0), x1 = xOf(c.t1);
       const active = playT >= c.t0 && playT < c.t1;
-      ctx.fillStyle = active ? 'rgba(217,119,87,0.30)' : raise;
+      ctx.fillStyle = active ? 'rgba(31,111,235,0.30)' : raise;
       ctx.strokeStyle = border;
       roundRect(ctx, x0, wRow.y + 3, Math.max(2, x1 - x0), wRow.h - 6, 3);
       ctx.fill(); ctx.stroke();

@@ -1,4 +1,4 @@
-# FYP Editor — local AI video cuts
+# Nila — flash-model AI video cuts
 
 Browser-local video editor that cuts talking-head footage into a high-retention
 vertical short. Drop one folder with your A-roll and B-roll; it transcribes on
