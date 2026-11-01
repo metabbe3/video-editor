@@ -491,6 +491,7 @@ export function salvageJsonArrays(text) {
 
 /** FYP pass: hook trim, target length, join punch-ins, emphasis punches, B-roll slots. */
 export function planFyp(keeps, words, tl, { emphases = [], brollHints = [], tuning = TUNING } = {}) {
+  if (!words?.length) return { emphases, brollHints }; // guard: no transcript yet — nothing to plan
   const kept = keeps.slice();
   // hook: first keep starts at its first word onset (no dead air at t=0)
   const first = kept[0];

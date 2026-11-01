@@ -77,6 +77,7 @@ export class App {
     this.tlv = createTimelineView($('timeline'), this.timelineHost());
     this.shell = initShell();
     this.chatPanel = new ChatPanel(this, this.director, this.project);
+    this.director.panel = this.chatPanel; // late-bind: director constructed before panel exists
     this.wire();
     this.restoreSettings();
   }

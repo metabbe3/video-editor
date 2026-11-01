@@ -11,6 +11,7 @@ export class ChatDirector {
   constructor(app, project) {
     this.app = app;
     this.p = project;
+    this.panel = app?.chatPanel ?? null; // chat panel reference for direct re-render
     this.status = 'idle'; // 'idle' | 'running'
     this.pendingDiff = null;
   }
@@ -261,6 +262,19 @@ export class ChatDirector {
       }
 
       case 'variants': {
+        // guard (lesson 1 Nov): jangan generate varian tanpa transkrip — hasilnya sampah sintetis
+        // dan select_variant → rebuild → planFyp crash (words null).
+        if (!p.words?.length) {
+          const msg = {
+            role: 'assistant', type: 'text',
+            text: 'No video folder loaded yet. Please pick a folder containing your A-roll video file to begin.',
+            at: Date.now(),
+            options: [{ label: '📂 Choose Folder', action: 'pick_folder' }],
+          };
+          p.chatLog.push(msg);
+          this.panel?.renderMessages?.();
+          break;
+        }
         const count = intent.params?.count || 3;
         onStatus(`Generating ${count} video variants…`);
 
@@ -533,7 +547,7 @@ export class ChatDirector {
       case 'select_variant': {
         const idx = data.index ?? 0;
         p.switchVariant(idx);
-        app?.rebuild?.();
+        if (p.words?.length) app?.rebuild?.(); // guard: rebuild tanpa transkrip crash planFyp (words.find null)
         const v = p.variants?.[idx];
         const msg = {
           id: `msg_${Date.now()}`,
