@@ -1,0 +1,1 @@
+{"name":"node-deps","private":true,"dependencies":{"@huggingface/transformers":"^4.3.2"}}

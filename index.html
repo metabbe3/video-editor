@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FYP Editor — local AI video cuts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf9f5; --bg-raise: #f4f2ea; --ink: #29261b; --ink-2: #737163;
+    --border: rgba(112, 107, 87, 0.25); --border-soft: rgba(112, 107, 87, 0.14);
+    --clay: #d97757; --clay-ink: #b4532f; --ok: #788c5d; --danger: #b03a2e;
+    --serif: "Lora", Georgia, serif;
+    --sans: -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px;
+    line-height: 1.45; -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ---------- top bar ---------- */
+  header {
+    display: flex; align-items: center; gap: 12px; padding: 9px 16px;
+    border-bottom: 1px solid var(--border-soft); flex: none;
+  }
+  header h1 { font-family: var(--serif); font-weight: 600; font-size: 17px; margin: 0; letter-spacing: -0.01em; }
+  #status { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  header .spacer { flex: 1; }
+  .tbtn {
+    font: inherit; font-size: 13px; color: var(--ink); background: transparent;
+    border: 1px solid transparent; border-radius: 8px; padding: 5px 11px; cursor: pointer; width: auto;
+    transition: background 140ms, border-color 140ms, transform 180ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .tbtn:hover { background: var(--bg-raise); border-color: var(--border-soft); }
+  .tbtn:active { transform: scale(0.97); }
+  .tbtn.primary { background: var(--clay); color: #fff; font-weight: 600; }
+  .tbtn.primary:hover { background: var(--clay-ink); }
+  .tbtn:disabled { opacity: 0.4; cursor: default; }
+
+  /* ---------- shell: rail + panels | stage | inspector — OpenCut layout ---------- */
+  main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #shellTop { flex: 1; display: flex; min-height: 0; }
+  #railWrap { display: flex; min-width: 0; width: 272px; flex: none; border-right: 1px solid var(--border-soft); }
+  #rail {
+    width: 44px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 4px;
+    border-right: 1px solid var(--border-soft); overflow-y: auto; scrollbar-width: none;
+  }
+  #rail::-webkit-scrollbar { display: none; }
+  #rail button {
+    width: 36px; height: 36px; font-size: 16px; line-height: 1; padding: 0;
+    background: transparent; border: none; border-radius: 9px; cursor: pointer; color: var(--ink-2);
+  }
+  #rail button:hover { background: var(--bg-raise); }
+  #rail button.on { background: var(--clay); color: #fff; }
+  #panelView { flex: 1; min-width: 0; overflow-y: auto; padding: 10px; }
+  .panel { display: flex; flex-direction: column; gap: 10px; }
+  .panel[hidden] { display: none; }
+  .panel > h3 {
+    margin: 4px 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--ink-2); font-weight: 600;
+  }
+  .vsplit { width: 6px; flex: none; cursor: col-resize; }
+  .vsplit:hover, .hsplit:hover { background: var(--border-soft); }
+  .hsplit { height: 6px; flex: none; cursor: row-resize; }
+
+  .step { border: 1px solid var(--border-soft); border-radius: 9px; padding: 9px 10px 10px; }
+  .step h2 {
+    margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--ink-2); font-weight: 600; display: flex; gap: 6px; align-items: center;
+  }
+  .step h2 .n {
+    width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 9px;
+  }
+  .step[data-done] h2 .n { background: var(--clay); border-color: var(--clay); color: #fff; }
+  .step button:not(.chip) {
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; cursor: pointer; width: 100%;
+    transition: background 140ms, transform 180ms cubic-bezier(0.16,1,0.3,1);
+  }
+  .step button:hover:not(:disabled) { background: var(--bg-raise); }
+  .step button:active:not(:disabled) { transform: scale(0.985); }
+  .step button:disabled { opacity: 0.45; cursor: default; }
+  .step button.primary { background: var(--clay); border-color: var(--clay); color: #fff; font-weight: 600; }
+  .step button.primary:hover:not(:disabled) { background: var(--clay-ink); }
+  select, input[type="password"], input[type="text"], textarea {
+    font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); width: 100%;
+    border: 1px solid var(--border); border-radius: 7px; padding: 4px 7px;
+  }
+  label { font-size: 11px; color: var(--ink-2); display: block; margin: 6px 0 2px; }
+  .filelist { max-height: 118px; overflow-y: auto; font-size: 11.5px; margin-top: 5px; }
+  .filelist .f {
+    display: flex; gap: 6px; padding: 2px 3px; border-radius: 5px; color: var(--ink-2);
+    align-items: baseline; white-space: nowrap; overflow: hidden;
+  }
+  .filelist .f span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .filelist .f .k { font-size: 9px; border: 1px solid var(--border-soft); border-radius: 3px; padding: 0 3px; flex: none; }
+  .filelist .f.aroll { color: var(--ink); background: var(--bg-raise); }
+  .progress { height: 3px; border-radius: 2px; background: var(--border-soft); overflow: hidden; margin-top: 8px; }
+  .progress > div { height: 100%; width: 0%; background: var(--clay); transition: width 200ms cubic-bezier(0.16,1,0.3,1); }
+  .chip {
+    display: inline-flex; align-items: center; font-size: 10.5px; color: var(--ink-2);
+    border: 1px solid var(--border-soft); border-radius: 999px; padding: 1px 8px; cursor: pointer;
+    margin-left: auto; background: transparent; font-weight: 400;
+  }
+  .chip.on { background: var(--clay); border-color: var(--clay); color: #fff; }
+  .assetgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
+  .assetgrid button {
+    font: inherit; font-size: 12px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--border-soft); border-radius: 8px; padding: 6px 4px; cursor: pointer;
+  }
+  .assetgrid button:hover { background: var(--bg-raise); border-color: var(--border); }
+  .assetgrid button.big { font-size: 22px; padding: 8px 4px; }
+
+  /* ---------- stage ---------- */
+  #stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 14px; min-width: 0; min-height: 0; flex: 1; }
+  #playerWrap { position: relative; flex: 1; min-height: 0; aspect-ratio: 9 / 16; max-width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-soft); background: #101010; cursor: grab; }
+  #playerWrap:active { cursor: grabbing; }
+  #player { width: 100%; height: 100%; display: block; }
+  #playerWrap .empty {
+    position: absolute; inset: 0; display: flex; flex-direction: column; gap: 5px;
+    align-items: center; justify-content: center; color: var(--ink-2);
+    font-family: var(--serif); font-size: 14px; text-align: center; padding: 0 14%;
+  }
+  #transport { display: flex; gap: 12px; align-items: center; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; flex-wrap: wrap; justify-content: center; }
+  #transport .tsep { width: 1px; height: 16px; background: var(--border-soft); }
+  #zoomRange { width: 90px; accent-color: var(--clay); }
+
+  /* ---------- right column: inspector + transcript ---------- */
+  #rightCol { display: flex; flex-direction: column; min-width: 0; width: 300px; flex: none; border-left: 1px solid var(--border-soft); }
+  #inspector { flex: none; max-height: 46%; overflow-y: auto; border-bottom: 1px solid var(--border-soft); padding: 10px 12px; }
+  #inspector .ihead { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-2); font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  #inspector .empty-hint { color: var(--ink-2); font-size: 12px; }
+  #inspector .irow { display: flex; align-items: center; gap: 6px; margin: 5px 0; font-size: 12px; }
+  #inspector .irow label { margin: 0; flex: 1; }
+  #inspector input[type="range"] { flex: 1.4; accent-color: var(--clay); }
+  #transcriptPane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  #transcriptPane header {
+    border-bottom: 1px solid var(--border-soft); padding: 8px 12px; display: flex; gap: 8px; align-items: baseline;
+  }
+  #transcriptPane header b { font-size: 12px; font-weight: 600; }
+  #wordDetail { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #transcript { flex: 1; overflow-y: auto; padding: 10px 12px; font-size: 13.5px; line-height: 1.9; }
+  #transcript .w { cursor: pointer; border-radius: 4px; padding: 1px 2px; transition: background 120ms; }
+  #transcript .w:hover { background: var(--bg-raise); }
+  #transcript .w.cut { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--clay); text-decoration-thickness: 1.5px; opacity: 0.55; }
+  #transcript .w.cur { background: var(--clay); color: #fff; }
+  #transcript .w.cur.cut { background: var(--ink-2); }
+  #transcript .w.filler { border-bottom: 1px dotted var(--clay); }
+  .takepill { display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 8px;margin:0 2px;border-radius:999px;background:var(--bg-raise);border:1px dashed var(--border);cursor:pointer;color:var(--ink-2); }
+  .takepill.open { border-style:solid; }
+  .takebody { display:none; margin:2px 0 6px; padding:4px 8px; border-left:2px solid var(--border); font-size:12px; }
+  .takebody.open { display:block; }
+  .takeopt { display:block; padding:2px 0; cursor:pointer; }
+  .takeopt.sel { color: var(--clay); font-weight:600; }
+
+  /* ---------- timeline dock ---------- */
+  #tlDock { border-top: 1px solid var(--border-soft); flex: none; padding: 6px 12px 8px; height: 176px; display: flex; flex-direction: column; }
+  #tlBar { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+  #tlBar .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
+  #tlBar button {
+    font: inherit; font-size: 12px; width: auto; padding: 1px 8px; color: var(--ink-2);
+    background: transparent; border: 1px solid var(--border-soft); border-radius: 6px; cursor: pointer;
+  }
+  #tlBar button:hover { background: var(--bg-raise); color: var(--ink); }
+  #tlBar button.on { background: var(--clay); border-color: var(--clay); color: #fff; }
+  #tlBar .spacer { flex: 1; }
+  #tlBar .kbd { font-size: 10.5px; color: var(--ink-2); }
+  #timeline { width: 100%; flex: 1; min-height: 80px; display: block; border-radius: 8px; background: var(--bg-raise); touch-action: none; }
+
+  /* ---------- transient popovers ---------- */
+  #debatePop, #errPop {
+    position: absolute; top: 44px; right: 12px; z-index: 40;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
+    box-shadow: 0 8px 28px rgba(41, 38, 27, 0.14); display: none;
+  }
+  #debatePop { width: 360px; max-height: 60vh; overflow-y: auto; }
+  #errPop { width: 340px; border-color: var(--danger); }
+
+  .toast {
+    position: fixed; bottom: 158px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--bg); border-radius: 8px; padding: 7px 15px;
+    font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity 200ms; z-index: 40;
+  }
+  .toast.show { opacity: 0.96; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>FYP Editor</h1>
+  <span id="status">Drop a folder to begin</span>
+  <span class="spacer"></span>
+  <input type="text" id="askInput" placeholder="Ask the editor…  e.g. make it 15 seconds, cut the intro, keep the demo" style="width:360px">
+  <button class="tbtn" id="askBtn" disabled title="send to GLM with the current cut + feedback history">Ask AI</button>
+  <span style="display:flex;gap:2px" id="aspectSeg">
+      <button class="tbtn" data-orient="9:16" style="width:auto;padding:3px 8px;font-size:11px">9:16</button>
+      <button class="tbtn" data-orient="16:9" style="width:auto;padding:3px 8px;font-size:11px">16:9</button>
+      <button class="tbtn" data-orient="1:1" style="width:auto;padding:3px 8px;font-size:11px">1:1</button>
+    </span>
+  <span id="durChip" style="font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums"></span>
+  <span class="chip" id="debateChip" title="editorial council debate log" hidden>🧠 Council ▾</span>
+  <span class="chip" id="modeChip" title="current edit source">local</span>
+  <button class="tbtn" id="settingsBtn">Settings</button>
+  <button class="tbtn primary" id="exportBtn" disabled>Export MP4</button>
+</header>
+
+<main>
+  <div id="shellTop">
+    <div id="railWrap">
+      <nav id="rail">
+        <button data-panel="media" title="Media">🎞</button>
+        <button data-panel="ai" title="AI edit">🤖</button>
+        <button data-panel="text" title="Text">✍️</button>
+        <button data-panel="sticker" title="Stickers">😀</button>
+        <button data-panel="effects" title="Effects">✨</button>
+        <button data-panel="sound" title="Sounds">🎵</button>
+        <button data-panel="captions" title="Captions">💬</button>
+        <button data-panel="settings" title="Settings">⚙️</button>
+      </nav>
+      <div id="panelView">
+        <section class="panel" data-panel="media">
+          <div class="step" id="step1">
+            <h2><span class="n">1</span> Folder</h2>
+            <button id="pickBtn" class="primary">Choose folder</button>
+            <label>A-roll</label>
+            <select id="arollSel"></select>
+            <div class="filelist" id="fileList"></div>
+          </div>
+          <div class="step" id="mediaBinWrap" hidden>
+            <h2>Media bin</h2>
+            <div id="mediaBin"></div>
+          </div>
+          <div class="step" id="scorePanel" hidden>
+            <h2>Score</h2>
+            <div id="scoreMeters" style="display:flex;flex-direction:column;gap:3px"></div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
+              <span id="scoreTotal" style="font-family:var(--serif);font-size:22px;font-weight:700">–</span>
+              <span id="scoreWpm" style="font-size:11px;color:var(--ink-2)"></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="ai" hidden>
+          <div class="step">
+            <h2>🧠 Editorial Council</h2>
+            <label style="display:flex;gap:6px;align-items:center;margin:6px 0 0"><input type="checkbox" id="councilOn" checked style="accent-color:var(--clay)"> Multi-persona debate</label>
+            <label>Editorial stance</label>
+            <select id="stanceSel">
+              <option value="ruthless">🔪 Ruthless Viral (Rhythm 60%)</option>
+              <option value="balanced" selected>⚖️ Balanced Creator</option>
+              <option value="storyteller">📖 Deep Storyteller (Scriptwriter 60%)</option>
+            </select>
+          </div>
+          <div class="step" id="step2">
+            <h2><span class="n">2</span> Analyze</h2>
+            <label>Whisper model (local, downloads once)</label>
+            <select id="sttModel">
+              <option value="onnx-community/whisper-base_timestamped" selected>base — multilingual · 77 MB · recommended</option>
+              <option value="onnx-community/whisper-small_timestamped">small — multilingual · 202 MB · better</option>
+              <option value="onnx-community/whisper-tiny.en_timestamped">tiny.en — English only · 39 MB · fast</option>
+            </select>
+            <label>Language</label>
+            <select id="sttLang">
+              <option value="auto" selected>Auto-detect (first 30s)</option>
+              <option value="indonesian">Indonesian</option>
+              <option value="english">English</option>
+              <option value="chinese">Chinese</option>
+              <option value="japanese">Japanese</option>
+              <option value="spanish">Spanish</option>
+              <option value="korean">Korean</option>
+              <option value="french">French</option>
+              <option value="german">German</option>
+            </select>
+            <button id="analyzeBtn" style="margin-top:8px" disabled>Analyze &amp; auto-cut</button>
+            <div class="progress" id="prog" hidden><div id="progBar"></div></div>
+          </div>
+          <div class="step" id="step3">
+            <h2><span class="n">3</span> Refine</h2>
+            <button id="refineBtn" disabled>Refine with GLM</button>
+            <div class="progress" id="prog2x" hidden><div id="progBar2x"></div></div>
+            <label style="margin-top:8px">Target duration <span id="durVal"></span></label>
+            <input type="range" id="durSlider" min="5" max="90" step="1" value="30" style="width:100%;accent-color:var(--clay)">
+            <div style="display:flex;gap:4px">
+              <button class="tbtn" id="dur30" style="width:auto;padding:2px 8px;font-size:11px">&lt;30s</button>
+              <button class="tbtn" id="dur60" style="width:auto;padding:2px 8px;font-size:11px">30-60s</button>
+              <button class="tbtn" id="dur90" style="width:auto;padding:2px 8px;font-size:11px">60-90s</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="text" hidden>
+          <h3>Add text at playhead</h3>
+          <div class="assetgrid">
+            <button data-addtext="title">Title</button>
+            <button data-addtext="subtitle">Subtitle</button>
+            <button data-addtext="pop">Pop</button>
+          </div>
+          <h3>Overlays</h3>
+          <div id="overlayList" style="display:flex;flex-direction:column;gap:6px"></div>
+          <div class="empty-hint" style="font-size:11.5px">Drag overlays on the player to move them. Edit text above.</div>
+        </section>
+
+        <section class="panel" data-panel="sticker" hidden>
+          <h3>Emoji — click to add at playhead</h3>
+          <div class="assetgrid" id="emojiGrid"></div>
+          <h3>Shapes</h3>
+          <div class="assetgrid">
+            <button class="big" data-addshape="rect">▭</button>
+            <button class="big" data-addshape="ellipse">◯</button>
+            <button class="big" data-addshape="star">★</button>
+          </div>
+        </section>
+
+        <section class="panel" data-panel="effects" hidden>
+          <h3>Clip effects &amp; masks</h3>
+          <div class="empty-hint" style="font-size:12px">Select a clip in the timeline — its effects and mask controls appear in the Inspector on the right.</div>
+          <h3>Global polish</h3>
+          <div style="display:flex;gap:4px;flex-wrap:wrap">
+            <button class="tbtn" data-lut="none" style="width:auto;padding:2px 8px;font-size:11px">None</button>
+            <button class="tbtn" data-lut="crisp" style="width:auto;padding:2px 8px;font-size:11px">Tech Crisp</button>
+            <button class="tbtn" data-lut="warm" style="width:auto;padding:2px 8px;font-size:11px">Warm</button>
+            <button class="tbtn" data-lut="punch" style="width:auto;padding:2px 8px;font-size:11px">Punch</button>
+            <label style="display:block;margin-top:6px;font-size:11px;color:var(--ink-2)">External .cube LUT: <input type="file" id="cubeFile" accept=".cube" style="font-size:10px"></label>
+          </div>
+          <label style="margin-top:8px">LUT intensity <span id="polishMixV">65%</span></label>
+          <input type="range" id="polishMix" min="0" max="100" value="65" style="width:100%;accent-color:var(--clay)">
+          <label>HD sharpen <span id="polishSharpV">0%</span></label>
+          <input type="range" id="polishSharp" min="0" max="100" value="0" style="width:100%;accent-color:var(--clay)">
+          <label>Skin smooth <span id="polishSkinV">0%</span></label>
+          <input type="range" id="polishSkin" min="0" max="100" value="0" style="width:100%;accent-color:var(--clay)">
+          <label style="display:flex;gap:6px;align-items:center;margin-top:6px">
+            <input type="checkbox" id="polishLevels" checked style="accent-color:var(--clay)"> Auto levels
+          </label>
+        </section>
+
+        <section class="panel" data-panel="sound" hidden>
+          <h3>🎵 Music &amp; SFX</h3>
+          <label>Background music</label>
+          <select id="bgmSel"><option value="">None</option></select>
+          <label>Volume <span id="bgmVolV">-20dB</span></label>
+          <input type="range" id="bgmVol" min="-40" max="-6" value="-20" style="width:100%;accent-color:var(--clay)">
+          <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="bgmDuck" checked style="accent-color:var(--clay)"> Auto-duck under voice</label>
+          <label style="display:flex;gap:6px;align-items:center;margin-top:4px"><input type="checkbox" id="autoSfx" style="accent-color:var(--clay)"> Whoosh SFX on cuts (export)</label>
+          <h3 id="sfxLibHead" hidden>Sound library — pin at playhead</h3>
+          <div id="sfxLib" class="assetgrid" hidden></div>
+        </section>
+
+        <section class="panel" data-panel="captions" hidden>
+          <h3>Captions</h3>
+          <label>Subtitles</label>
+          <select id="capMode">
+            <option value="word-pop" selected>Word-pop captions (on)</option>
+            <option value="off">Off — no captions</option>
+          </select>
+          <label>Caption style</label>
+          <select id="capStyle">
+            <option value="hormozi" selected>Hormozi / Impact</option>
+            <option value="karaoke">Sliding Pill (karaoke)</option>
+            <option value="glass">Frosted Glass</option>
+            <option value="pop">Kinetic Pop &amp; Tilt</option>
+            <option value="clean">YouTube Clean</option>
+          </select>
+          <h3 style="margin-top:8px">SRT</h3>
+          <button class="tbtn" id="srtExport" style="width:auto;padding:3px 10px;font-size:12px;align-self:flex-start">Export .srt</button>
+          <div class="empty-hint" style="font-size:11.5px">Captions of the edited timeline as SubRip.</div>
+        </section>
+
+        <section class="panel" data-panel="settings" hidden>
+          <h3>Edit target</h3>
+          <select id="platform">
+            <option value="shorts" selected>YouTube Shorts / Reels — 21-34s</option>
+            <option value="tiktok">TikTok — 15-30s, tighter</option>
+            <option value="youtube">YouTube highlight — 45-90s</option>
+          </select>
+
+          <h3 style="margin-top:10px">Video &amp; export</h3>
+          <label>Video fit (source → frame)</label>
+          <select id="fitMode">
+            <option value="cover" selected>Crop-fill — fills the frame (crops edges)</option>
+            <option value="blur">Fit + blurred background — whole video visible</option>
+          </select>
+          <label>Orientation</label>
+          <select id="orient">
+            <option value="9:16" selected>Vertical 9:16 — Shorts/TikTok/Reels</option>
+            <option value="16:9">Horizontal 16:9 — YouTube</option>
+            <option value="1:1">Square 1:1 — feed</option>
+          </select>
+          <label>Resolution (short side)</label>
+          <select id="resSel">
+            <option value="1080" selected>1080 — full</option>
+            <option value="720">720 — light</option>
+            <option value="480">480 — draft</option>
+          </select>
+          <label>Frame rate</label>
+          <select id="fpsSel">
+            <option value="30" selected>30 fps</option>
+            <option value="60">60 fps</option>
+            <option value="24">24 fps — filmic</option>
+          </select>
+          <label>Export quality</label>
+          <select id="quality">
+            <option value="0.10" selected>High</option>
+            <option value="0.075">Balanced</option>
+            <option value="0.05">Light</option>
+          </select>
+          <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="sfxOn" style="accent-color:var(--clay)"> Whoosh SFX on punches (export)</label>
+          <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="progOn" style="accent-color:var(--clay)"> Retention progress bar</label>
+          <label>Master volume <span id="volDbVal">0 dB</span></label>
+          <input type="range" id="volDb" min="-12" max="6" step="1" value="0" style="accent-color:var(--clay)">
+
+          <h3 style="margin-top:10px">GLM</h3>
+          <label>API key (<a href="https://z.ai" target="_blank" style="color:var(--clay)">z.ai</a> · stored only in this browser)</label>
+          <input type="password" id="glmKey" placeholder="GLM API key" autocomplete="off">
+          <label>Model</label>
+          <select id="glmModel">
+            <option value="glm-5.3-flash" selected>glm-5.3-flash — fast, cheap</option>
+            <option value="glm-5.3">glm-5.3 — strongest</option>
+          </select>
+          <label>Endpoint</label>
+          <select id="glmEndpoint">
+            <option value="https://api.z.ai/api/paas/v4" selected>z.ai · standard</option>
+            <option value="https://api.z.ai/api/coding/paas/v4">z.ai · coding plan</option>
+            <option value="https://open.bigmodel.cn/api/paas/v4">bigmodel.cn</option>
+          </select>
+          <label>Edit instructions for the AI (optional — steers what to cut / keep)</label>
+          <textarea id="glmPrompt" rows="3" placeholder="e.g. keep only the product demo, cut the intro story and all sponsor talk, target ~25s" style="font:inherit;font-size:13px;color:var(--ink);background:var(--bg);width:100%;border:1px solid var(--border);border-radius:7px;padding:4px 7px;resize:vertical"></textarea>
+          <label style="display:flex;gap:6px;align-items:center;margin-top:8px">
+            <input type="checkbox" id="visionOn" style="accent-color:var(--clay)">
+            Vision context — sends ~6 sampled frames from this video to GLM
+          </label>
+        </section>
+      </div>
+    </div>
+
+    <div class="vsplit" id="spLeft" title="drag to resize"></div>
+
+    <section id="stage">
+      <div id="playerWrap">
+        <canvas id="player"></canvas>
+        <div class="empty" id="emptyMsg">Your vertical edit appears here.<br>Pick a folder, then <em>Analyze</em>.</div>
+      </div>
+      <div id="transport">
+        <button class="tbtn" id="playBtn" disabled>Play</button>
+        <span id="timeLabel">0.0 / 0.0s</span>
+        <span class="tsep"></span>
+        <input type="range" id="zoomRange" min="0.6" max="4" step="0.05" value="1" title="zoom (also wheel on the player)">
+        <span id="zoomVal" style="min-width:34px">1.0×</span>
+        <span class="chip" id="faceChip" title="face-aware auto framing">auto-frame</span>
+        <span class="chip" id="guideChip" title="preview guides: off → safe zones → grid → TikTok UI (never exported)">guides</span>
+        <span class="chip" id="polishChip" title="LUT · HD sharpen · skin smooth">✨ Polish</span>
+        <span class="chip" id="musicChip" title="BGM · auto-duck · SFX">🎵</span>
+        <span class="chip" id="snapChip" title="magnetic snapping">🧲</span>
+        <span class="kbd" style="color:var(--ink-2)">drag player = pan · dblclick = reset</span>
+      </div>
+    </section>
+
+    <div class="vsplit" id="spRight" title="drag to resize"></div>
+
+    <div id="rightCol">
+      <div id="inspector">
+        <div class="ihead">Inspector</div>
+        <div class="empty-hint">Click a clip in the timeline to edit its speed, effects, and mask.</div>
+      </div>
+      <section id="transcriptPane">
+        <header style="gap:6px;flex-wrap:wrap">
+          <button class="tbtn" id="tabScript" style="width:auto;padding:2px 10px;font-size:11.5px">📖 Story Script</button>
+          <button class="tbtn" id="tabRaw" style="width:auto;padding:2px 10px;font-size:11.5px">🗺️ Raw Map</button>
+          <input type="text" id="wordSearch" placeholder="search…" style="width:90px;font-size:12px;padding:2px 6px">
+          <span id="wordDetail" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">word timings after Analyze</span>
+        </header>
+        <div id="chapters" hidden style="padding:6px 12px;border-bottom:1px solid var(--border-soft)"></div>
+        <div style="padding:4px 12px;border-bottom:1px solid var(--border-soft);display:none" id="chapterBar">
+          <button class="tbtn" id="copyChaptersBtn" style="width:auto;padding:2px 10px;font-size:11.5px">Copy YouTube description</button>
+        </div>
+        <div id="transcript"></div>
+        <div id="scriptView" style="display:none;padding:10px 12px;overflow-y:auto;flex:1"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="hsplit" id="spTl" title="drag to resize"></div>
+
+  <div id="tlDock">
+    <div id="tlBar">
+      <span class="lbl">Timeline</span>
+      <span id="variantRow" hidden style="display:flex;gap:6px;flex-wrap:wrap"></span>
+      <button id="tlZoomOut" title="zoom out">−</button>
+      <button id="tlZoomIn" title="zoom in">+</button>
+      <button id="tlFit" title="fit (double-click timeline)">fit</button>
+      <button class="tbtn" id="razorChip" title="razor: click the V lane to split (Esc to exit)" style="width:auto;padding:1px 8px;font-size:12px">✂ Razor</button>
+      <span class="spacer"></span>
+      <span class="kbd">drag edges = trim · drag clip = reorder · wheel = scroll · ⌘wheel = zoom · space = play · S = split</span>
+    </div>
+    <canvas id="timeline"></canvas>
+  </div>
+</main>
+
+  <div id="debatePop">
+    <div id="debateBody"></div>
+  </div>
+  <div id="errPop">
+    <h3 style="margin:0 0 6px;font-size:12px;color:var(--danger)">Export failed</h3>
+    <div id="errMsg" style="font-family:var(--mono);font-size:11px;color:var(--ink-2);max-height:120px;overflow:auto"></div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <button class="tbtn primary" id="errRetry" style="width:auto;padding:4px 10px">Retry</button>
+      <button class="tbtn" id="errEdl" style="width:auto;padding:4px 10px">Download EDL JSON</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+<input type="file" id="dirInput" webkitdirectory multiple hidden>
+<script type="module">
+    import { App } from "./src/main.js";
+    import { timelineOf } from "./src/core/Compositor.js";
+    import { removedView } from "./engine/edit-engine.js";
+    const app = window.app = new App();
+    window.__fyp = {
+      get state() { return app.project; },
+      get preview() { return app.preview; },
+      app: () => app,
+      async loadFixture(paths) {
+        const { buildRegistry } = await import("./engine/ingest.js");
+        const entries = await Promise.all(paths.map(async (p) => ({
+          file: new File([await (await fetch(p)).blob()], p.split("/").pop()),
+          path: "fixture/" + p.split("/").pop(),
+        })));
+        app.project.reg = buildRegistry(entries);
+        app.renderFiles();
+        app.syncButtons();
+        return { aroll: app.project.reg.arollId };
+      },
+      summary() {
+        const p = app.project;
+        if (!p.edl) return null;
+        return { keep: p.edl.keep, dur: timelineOf(p.edl).duration };
+      },
+      askAi: () => app.refineFlow(true),
+      toggleWord: (i, idxs) => app.toggleWord(i, idxs),
+      undo: () => app.undo(),
+    };
+  </script>
+</body>
+</html>

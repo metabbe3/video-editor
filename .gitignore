@@ -1,0 +1,3 @@
+# vendored node deps for the offline transcribe script (~555 MB, regenerable)
+scripts/node-deps/node_modules/
+.DS_Store
