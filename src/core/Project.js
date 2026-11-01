@@ -53,6 +53,7 @@ export class Project {
       jCuts: true, autoSfx: false, snap: true,
       quality: 0.1, volumeDb: 0, autoframe: true, vision: false, sfx: false,
       progressBar: false,
+      adjust: { brightness: 0, contrast: 0, saturation: 0, temperature: 0 },
     };
   }
 
@@ -116,6 +117,7 @@ export class Project {
         captionWords: TUNING.captionMaxWords,
         reframe: this.edl?.style.reframe ?? { ...DEFAULT_MANUAL },
         progressBar: this.settings.progressBar,
+        adjust: { ...(this.settings.adjust || { brightness: 0, contrast: 0, saturation: 0, temperature: 0 }) },
       },
       hookTitle: v ? (v.hookTitle ?? '') : (this.glmResult?.hookTitle ?? ''),
       keep,
@@ -132,6 +134,7 @@ export class Project {
       keywords: (this.useGlm && this.glmResult?.emphases) || [],
       bgm: this.bgm ?? null,
       overlays: this.overlays ?? [],
+      audioOverlays: this.edl?.audioOverlays ?? [],
       sfx: this.settings.autoSfx ? scheduleSfx({ keep, punches: (plan.punches || []).filter((p) => p.at <= tl.duration) }) : [],
       transitions: transitionsFor(keep, plat.transition),
     };

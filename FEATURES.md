@@ -17,7 +17,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ missing · feasibility in-browser (ea
 | Drag-reorder clips | ✅ | Round 14 (repaired the dead vdrag branch) |
 | Freeze frame | ✅ | end-freeze per clip (`keep[i].freeze`, ❄ in Inspector) |
 | Speed change | ✅ | uniform per-clip 0.25–4× (`keep[i].speed`); preview `playbackRate` + `preservesPitch=false` matches export's linear resample |
-| Speed curves / ramp | ❌ moderate | the signature "CapCut look" — future `keep[i].speedCurve` |
+| Speed curves / ramp | ✅ | signature CapCut look: preset chips (hero, ramp in/out, montage) + linear interp + resampler + preview approx (`keep[i].speedCurve`) |
 | Reverse clip | ❌ hard | cheap UI, expensive render |
 | Nesting / compound clips | ❌ easy | data-model `group` |
 
@@ -30,9 +30,9 @@ Legend: ✅ shipped · 🟡 partial · ❌ missing · feasibility in-browser (ea
 | Face-aware auto-reframe | ✅ | beyond CapCut (MediaPipe track, smoothed) |
 | Manual zoom/pan reframe | ✅ | drag player, wheel/slider, dblclick reset |
 | Zoom punches (auto keyframe-lite) | ✅ | FYP grammar |
-| Crop (free) | 🟡 | cover-crop + pan/zoom covers most; no arbitrary rect |
-| Rotate / flip (mirror) | ❌ easy | sideways-phone fix + face-cam mirror |
-| Blur-pad canvas background | ❌ easy | portrait-in-landscape alternative to cover-crop |
+| Crop (free) | ✅ | Inspector Crop mode: drag player for arbitrary normalized rect (`keep[i].cropRect`), render parity |
+| Rotate / flip (mirror) | ✅ | Inspector: 90° rotate steps + horizontal mirror (`keep[i].rotate`, `keep[i].flipH`), render + export parity |
+| Blur-pad canvas background | ✅ | Settings → Fit: blur-pad, full-frame blurred background with contain in front |
 
 ## Text & captions
 
@@ -53,11 +53,11 @@ Legend: ✅ shipped · 🟡 partial · ❌ missing · feasibility in-browser (ea
 | Master volume (preview + export) | ✅ | −12…+6 dB |
 | Join micro-fades (anti-click) | ✅ | automatic |
 | Silence/filler removal | ✅ | the core |
-| Audio fade handles | 🟡 | auto at joins; no manual curves |
+| Audio fade handles | ✅ | Inspector fadeIn/fadeOut (0-2000ms), gain envelope render in export + preview parity |
 | Volume keyframes (ducking) | ❌ moderate | auto-duck vs voice is the real ask |
 | Extract/detach audio | ❌ moderate | keep sound while replacing visuals |
 | Sound library | 🟡 | procedural SFX presets (whoosh/pop/riser/impact/click/ting) with audition + pin at playhead; no external library yet |
-| Voiceover record | ❌ easy | MediaRecorder — narration is core to tutorials |
+| Voiceover record | ✅ | MediaRecorder mic on toolbar → audio overlay on timeline (draggable position) |
 
 ## Looks
 
@@ -65,7 +65,7 @@ Legend: ✅ shipped · 🟡 partial · ❌ missing · feasibility in-browser (ea
 |---|---|---|
 | Transitions (crossfade + scale settle) | ✅ | auto-scheduled at >1s removals, speed/freeze-aware joins |
 | Filters / LUT presets | ✅ | crisp/warm/punch + external .cube (global polish) |
-| Adjust sliders (brightness/contrast/sat) | ❌ easy | `ctx.filter` |
+| Adjust sliders (brightness/contrast/sat) | ✅ | panel Looks: brightness/contrast/sat/temp per project via ctx.filter + temperature overlay |
 | Per-clip effect stack | ✅ | Round 14: blur + vignette via registry (`src/effects/clipfx.js`); glitch deferred |
 | Chroma key | ❌ moderate | WebGL shader |
 | Mask / split-screen | ✅ | Round 14: rect/ellipse/cinematic-bars/split masks with feather + invert (Inspector) |
@@ -92,7 +92,8 @@ Legend: ✅ shipped · 🟡 partial · ❌ missing · feasibility in-browser (ea
 | Orientation-aware MP4 (avc + aac, faststart) | ✅ verified 1280×720 + 1080×1920 |
 | LUFS-normalized sample-exact audio | ✅ |
 | Codec choice (HEVC/AV1 opt-in) | 🟡 avc only (99.6% support; AV1 = opt-in later) |
-| Platform presets (exact TikTok/Shorts ladders) | 🟡 quality factor matches the verified envelope; named presets TBD |
+| Platform presets (exact TikTok/Shorts ladders) | ✅ | one-click preset dropdown: TikTok, Shorts, Reels, Square 1:1, YouTube 16:9 |
+| Named quality labels | ✅ | High (0.10 bpp), Balanced (0.075 bpp), Light (0.05 bpp) |
 | One-way FCPXML/EDL export (round-trip to pro NLEs) | ❌ moderate — escape hatch, not a feature |
 | SRT caption export | ✅ | Round 14: `engine/srt.js`, Captions panel (import deferred) |
 

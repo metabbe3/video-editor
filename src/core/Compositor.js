@@ -7,6 +7,33 @@ import { CaptionsElement } from '../elements/CaptionsElement.js';
 import { OverlayElement, overlayHit } from '../elements/OverlayElement.js';
 import { HookCard, StepList, MetricCallout, ProgressBar } from '../elements/mogrts.js';
 import { applyPolish } from '../effects/polish.js';
+import { buildAdjustFilter, applyTemperatureOverlay } from '../../engine/clip-ops.js';
+
+const _adjScratch = {};
+function adjScratch(w, h) {
+  _adjScratch.c ??= document.createElement('canvas');
+  const c = _adjScratch.c;
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  return c;
+}
+
+export function applyColorAdjust(ctx, w, h, adjust) {
+  if (!adjust) return;
+  const filter = buildAdjustFilter(adjust);
+  if (filter) {
+    const snap = adjScratch(w, h);
+    const sctx = snap.getContext('2d');
+    sctx.clearRect(0, 0, w, h);
+    sctx.drawImage(ctx.canvas, 0, 0);
+    ctx.save();
+    ctx.filter = filter;
+    ctx.drawImage(snap, 0, 0);
+    ctx.restore();
+  }
+  if (adjust.temperature) {
+    applyTemperatureOverlay(ctx, w, h, adjust.temperature);
+  }
+}
 
 const tlCache = new WeakMap();
 export function timelineOf(edl) {
@@ -55,10 +82,14 @@ export class Compositor {
     ctx.fillRect(0, 0, w, h);
     const els = this.scene(edl, t);
     for (const el of els) el.render(ctx, w, h, t, { assets });
-    // polish (LUT/HD/skin) after video layers but before text overlays stay legible —
+    // polish (LUT/HD/skin) & color adjust after video layers but before text overlays stay legible —
     // run it, then re-draw the text elements so captions never get graded/blurred
-    if (this.polish && (this.polish.lut !== 'none' || this.polish.sharpen || this.polish.skinSmooth)) {
-      applyPolish(ctx, w, h, this.polish, edl.faces, t);
+    const adj = edl.style.adjust;
+    const hasAdj = adj && (adj.brightness || adj.contrast || adj.saturation || adj.temperature);
+    const hasPolish = this.polish && (this.polish.lut !== 'none' || this.polish.sharpen || this.polish.skinSmooth || this.polish.cubeLut);
+    if (hasAdj || hasPolish) {
+      if (hasAdj) applyColorAdjust(ctx, w, h, adj);
+      if (hasPolish) applyPolish(ctx, w, h, this.polish, edl.faces, t);
       for (const el of els) if (el instanceof CaptionsElement || el instanceof OverlayElement || el.constructor.name === 'HookCard' || el.constructor.name === 'StepList' || el.constructor.name === 'MetricCallout') el.render(ctx, w, h, t, { assets });
     }
   }

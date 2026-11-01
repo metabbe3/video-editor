@@ -16,8 +16,26 @@ export function checkEdl(edl, { w = 1080, h = 1920 } = {}) {
     if (k.speed != null && (!Number.isFinite(k.speed) || k.speed < 0.25 || k.speed > 4)) {
       blockers.push(`Keep #${i + 1} speed ${k.speed} outside 0.25–4`);
     }
+    if (k.speedCurve != null) {
+      if (!Array.isArray(k.speedCurve) || k.speedCurve.length < 2) {
+        blockers.push(`Keep #${i + 1} speedCurve must have at least 2 points`);
+      } else {
+        for (const pt of k.speedCurve) {
+          if (!Number.isFinite(pt.t) || pt.t < 0 || pt.t > 1 || !Number.isFinite(pt.v) || pt.v < 0.25 || pt.v > 4) {
+            blockers.push(`Keep #${i + 1} speedCurve point invalid`);
+            break;
+          }
+        }
+      }
+    }
     if (k.freeze != null && (!Number.isFinite(k.freeze) || k.freeze < 0.2 || k.freeze > 10)) {
       blockers.push(`Keep #${i + 1} freeze ${k.freeze}s outside 0.2–10`);
+    }
+    if (k.fadeIn != null && (!Number.isFinite(k.fadeIn) || k.fadeIn < 0 || k.fadeIn > 5000)) {
+      warnings.push(`Keep #${i + 1} fadeIn ${k.fadeIn}ms outside 0-5000`);
+    }
+    if (k.fadeOut != null && (!Number.isFinite(k.fadeOut) || k.fadeOut < 0 || k.fadeOut > 5000)) {
+      warnings.push(`Keep #${i + 1} fadeOut ${k.fadeOut}ms outside 0-5000`);
     }
   });
   // dims/fps must be even integers

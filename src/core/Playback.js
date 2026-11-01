@@ -5,6 +5,7 @@
 // The visible canvas is fed through the SAME drawFrame as the exporter.
 
 import { timelineOf } from './Compositor.js';
+import { evalSpeedCurve, clipFadeGain } from '../../engine/clip-ops.js';
 
 /** resolve when the element has data and no pending seek (bounded wait). */
 function settle(el) {
@@ -31,6 +32,7 @@ export function createPreview(canvas, getFile, compositor) {
   };
   const els = [mkVideo(), mkVideo()]; // els[seg % 2] owns segment seg
   const brollEl = mkVideo();
+  const voEl = document.createElement('audio');
 
   const P = {
     edl: null, tl: null, seg: 0, playing: false, raf: 0, fadeIn: false,
@@ -93,6 +95,7 @@ export function createPreview(canvas, getFile, compositor) {
       cancelAnimationFrame(this.raf);
       els.forEach((v) => v.pause());
       brollEl.pause();
+      voEl.pause();
       if (this._freezeT0 != null) { // remember how much freeze is left
         const s = this.tl?.segments[this.seg];
         this._freezeLeft = Math.max(0, s.freeze - (performance.now() - this._freezeT0) / 1000);
@@ -122,7 +125,7 @@ export function createPreview(canvas, getFile, compositor) {
     },
     destroy() {
       this.pause();
-      els.forEach((v) => v.remove()); brollEl.remove();
+      els.forEach((v) => v.remove()); brollEl.remove(); voEl.remove();
       urls.forEach((u) => URL.revokeObjectURL(u));
     },
     redraw() { this._draw(); },
@@ -141,9 +144,17 @@ export function createPreview(canvas, getFile, compositor) {
      *  export's naive linear resample (ponytail: windowed-sinc + preservesPitch
      *  together, if speech at 2x ever matters) */
     _applyRate(el, s) {
-      const rate = s ? s.rate : 1;
-      el.playbackRate = rate;
-      el.preservesPitch = rate === 1;
+      if (!s) { el.playbackRate = 1; return; }
+      if (s.speedCurve) {
+        const prog = (s.out - s.in > 0) ? Math.max(0, Math.min(1, (el.currentTime - s.in) / (s.out - s.in))) : 0;
+        const curRate = evalSpeedCurve(s.speedCurve, prog);
+        el.playbackRate = Math.max(0.25, Math.min(4, curRate));
+        el.preservesPitch = false;
+      } else {
+        const rate = s ? s.rate : 1;
+        el.playbackRate = rate;
+        el.preservesPitch = rate === 1;
+      }
     },
     _park(i, el) { // position element at segment i's in-point (no play)
       const s = this.tl.segments[i];
@@ -197,6 +208,22 @@ export function createPreview(canvas, getFile, compositor) {
         el.currentTime = s.in; // seek regression nudge
       }
 
+      if (s.speedCurve) {
+        this._applyRate(el, s);
+      }
+
+      // Apply fade envelope to playback volume:
+      const k = this.edl?.keep?.[this.seg];
+      const baseVol = Math.min(1, Math.max(0, 10 ** ((this.volDb || 0) / 20)));
+      if (k && (k.fadeIn || k.fadeOut)) {
+        const playLen = (s.out - s.in) / s.rate;
+        const localT = Math.max(0, (el.currentTime - s.in) / s.rate);
+        const fadeG = clipFadeGain(localT, playLen, (k.fadeIn || 0) / 1000, (k.fadeOut || 0) / 1000);
+        el.volume = baseVol * fadeG;
+      } else {
+        el.volume = baseVol;
+      }
+
       // b-roll slot (muted overlay source)
       const t = this.editedTime();
       const slot = (this.edl.broll || []).find((b) => t >= b.at && t < b.at + b.dur);
@@ -206,6 +233,18 @@ export function createPreview(canvas, getFile, compositor) {
         if (Math.abs(brollEl.currentTime - want) > 0.15) brollEl.currentTime = want;
         if (this.playing && brollEl.paused) brollEl.play().catch(() => {});
       } else if (!brollEl.paused) brollEl.pause();
+
+      // audio overlay slot (voiceover)
+      const ao = (this.edl.audioOverlays || []).find((a) => t >= a.at && t < a.at + a.dur);
+      if (ao && ao.src) {
+        if (voEl.src !== url(ao.src)) { voEl.src = url(ao.src); voEl.load(); }
+        const want = t - ao.at;
+        if (Math.abs(voEl.currentTime - want) > 0.15) voEl.currentTime = want;
+        voEl.volume = Math.min(1, Math.max(0, (ao.volume ?? 1) * baseVol));
+        if (this.playing && voEl.paused) voEl.play().catch(() => {});
+      } else if (!voEl.paused) {
+        voEl.pause();
+      }
 
       this._draw();
       this.onTime?.(t);

@@ -65,9 +65,10 @@ export function createTimelineView(canvas, host) {
     const hasB = (edl.broll || []).length > 0;
     const hasT = (edl.steps || []).length > 0;
     const hasSfx = (edl.sfx || []).length > 0;
+    const hasAo = (edl.audioOverlays || []).length > 0;
     const hasBgm = !!edl.bgm?.src;
     for (const [k, h] of Object.entries(ROWS)) {
-      const on = (k === 'b1' || k === 'b2') ? hasB : k === 't' ? hasT : (k === 'a2') ? hasSfx : k === 'a3' ? hasBgm : true;
+      const on = (k === 'b1' || k === 'b2') ? hasB : k === 't' ? hasT : (k === 'a2') ? (hasSfx || hasAo) : k === 'a3' ? hasBgm : true;
       rows[k] = { y, h: on ? h : 0 };
       y += on ? h : 0;
     }
@@ -217,6 +218,23 @@ export function createTimelineView(canvas, host) {
       }
     }
 
+    // Audio overlays (voiceover) on lane a2
+    if (rows.a2.h && (edl.audioOverlays || []).length > 0) {
+      for (const ao of edl.audioOverlays) {
+        const x0 = xOf(ao.at), x1 = xOf(ao.at + (ao.dur || 1));
+        ctx.fillStyle = 'rgba(217, 119, 87, 0.45)';
+        ctx.strokeStyle = '#d97757';
+        roundRect(ctx, x0, rows.a2.y + 2, Math.max(6, x1 - x0), rows.a2.h - 4, 3);
+        ctx.fill(); ctx.stroke();
+        if (x1 - x0 > 24) {
+          ctx.fillStyle = '#fff';
+          ctx.font = '9px system-ui';
+          ctx.textAlign = 'left';
+          ctx.fillText(`🎙️ ${ao.name || 'VO'}`, x0 + 4, rows.a2.y + rows.a2.h - 4);
+        }
+      }
+    }
+
     // SFX pins on the A row
     ctx.font = '9px system-ui';
     for (const e of edl.sfx || []) {
@@ -274,6 +292,14 @@ export function createTimelineView(canvas, host) {
     canvas.setPointerCapture(e.pointerId);
     const { x, y } = pt(e);
     const rows = rowsOf();
+    const aoHit = (edl.audioOverlays || []).find((ao) => {
+      const x0 = xOf(ao.at), x1 = xOf(ao.at + (ao.dur || 1));
+      return x >= x0 && x <= x1;
+    });
+    if (aoHit && rows.a2?.h && y >= rows.a2.y && y < rows.a2.y + rows.a2.h) {
+      T.drag = { kind: 'aoDrag', item: aoHit, startX: x, origAt: aoHit.at };
+      return;
+    }
     const hit = segAtX(edl, x);
     if (hit?.edge) T.drag = { kind: 'trim', seg: hit.seg, edge: hit.edge };
     else if (host.getRazor && host.getRazor() && hit) { host.razorSplit?.(tOf(x)); return; }
@@ -291,6 +317,11 @@ export function createTimelineView(canvas, host) {
       return;
     }
     if (T.drag.kind === 'scrub') host.seekTo(clamp(snapT(tOf(x)), 0, duration()));
+    else if (T.drag.kind === 'aoDrag') {
+      const dt = (x - T.drag.startX) / T.pxPerSec;
+      T.drag.item.at = Math.max(0, Math.min(duration() - 0.2, T.drag.origAt + dt));
+      host.redraw();
+    }
     else if (T.drag.kind === 'vdrag') {
       // magnetic reorder: past a neighbor's midpoint swaps keep order
       const edl = host.getEdl();
@@ -305,7 +336,11 @@ export function createTimelineView(canvas, host) {
     }
     else host.trimSeg(T.drag.seg, T.drag.edge, snapT(tOf(x)));
   });
-  const endDrag = () => { if (T.drag?.kind === 'trim') host.commitTrim(); T.drag = null; };
+  const endDrag = () => {
+    if (T.drag?.kind === 'trim') host.commitTrim();
+    if (T.drag?.kind === 'aoDrag') host.commitTrim?.();
+    T.drag = null;
+  };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
   canvas.addEventListener('wheel', (e) => {

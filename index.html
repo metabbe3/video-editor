@@ -211,6 +211,12 @@
   <button class="tbtn primary" id="exportBtn" disabled>Export MP4</button>
 </header>
 
+<div id="restoreBanner" hidden style="background:var(--bg-raise);border-bottom:1px solid var(--accent);padding:7px 16px;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--ink);flex:none">
+  <span id="restoreMsg" style="flex:1">Saved edit found for this video. Restore last edit?</span>
+  <button id="restoreBtn" class="tbtn primary" style="padding:3px 12px;font-size:12px">Restore last edit</button>
+  <button id="dismissRestoreBtn" class="tbtn" style="padding:3px 8px;font-size:12px">✕ Dismiss</button>
+</div>
+
 <main>
   <div id="shellTop">
     <div id="railWrap">
@@ -338,6 +344,25 @@
           <label style="display:flex;gap:6px;align-items:center;margin-top:6px">
             <input type="checkbox" id="polishLevels" checked style="accent-color:var(--accent)"> Auto levels
           </label>
+          <h3>Color adjust</h3>
+          <div style="display:flex;flex-direction:column;gap:5px">
+            <div>
+              <label style="margin:0 0 2px;display:flex;justify-content:space-between">Brightness <span id="adjBrightV" style="font-family:var(--mono)">0</span></label>
+              <input type="range" id="adjBright" min="-100" max="100" value="0" style="width:100%;accent-color:var(--accent)">
+            </div>
+            <div>
+              <label style="margin:0 0 2px;display:flex;justify-content:space-between">Contrast <span id="adjContrastV" style="font-family:var(--mono)">0</span></label>
+              <input type="range" id="adjContrast" min="-100" max="100" value="0" style="width:100%;accent-color:var(--accent)">
+            </div>
+            <div>
+              <label style="margin:0 0 2px;display:flex;justify-content:space-between">Saturation <span id="adjSatV" style="font-family:var(--mono)">0</span></label>
+              <input type="range" id="adjSat" min="-100" max="100" value="0" style="width:100%;accent-color:var(--accent)">
+            </div>
+            <div>
+              <label style="margin:0 0 2px;display:flex;justify-content:space-between">Temperature <span id="adjTempV" style="font-family:var(--mono)">0</span></label>
+              <input type="range" id="adjTemp" min="-100" max="100" value="0" style="width:100%;accent-color:var(--accent)">
+            </div>
+          </div>
         </section>
 
         <section class="panel" data-panel="sound" hidden>
@@ -381,10 +406,20 @@
           </select>
 
           <h3 style="margin-top:10px">Video &amp; export</h3>
+          <label>Platform export preset</label>
+          <select id="exportPreset">
+            <option value="custom">Custom</option>
+            <option value="tiktok" selected>TikTok — 1080×1920@30</option>
+            <option value="shorts">Shorts — 1080×1920@60</option>
+            <option value="reels">Reels — 1080×1920@30</option>
+            <option value="square">Square 1:1 — 1080×1080@30</option>
+            <option value="youtube">YouTube 16:9 — 1920×1080@30</option>
+          </select>
           <label>Video fit (source → frame)</label>
           <select id="fitMode">
-            <option value="cover" selected>Crop-fill — fills the frame (crops edges)</option>
-            <option value="blur">Fit + blurred background — whole video visible</option>
+            <option value="cover" selected>Cover (crop-fill frame)</option>
+            <option value="contain">Contain (letterbox)</option>
+            <option value="blur-pad">Fit: blur-pad (blurred background)</option>
           </select>
           <label>Orientation</label>
           <select id="orient">
@@ -406,9 +441,9 @@
           </select>
           <label>Export quality</label>
           <select id="quality">
-            <option value="0.10" selected>High</option>
-            <option value="0.075">Balanced</option>
-            <option value="0.05">Light</option>
+            <option value="0.10" selected>High (0.10 bpp)</option>
+            <option value="0.075">Balanced (0.075 bpp)</option>
+            <option value="0.05">Light (0.05 bpp)</option>
           </select>
           <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="sfxOn" style="accent-color:var(--accent)"> Whoosh SFX on punches (export)</label>
           <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="progOn" style="accent-color:var(--accent)"> Retention progress bar</label>
@@ -495,6 +530,7 @@
       <button id="tlZoomIn" title="zoom in">+</button>
       <button id="tlFit" title="fit (double-click timeline)">fit</button>
       <button class="tbtn" id="razorChip" title="razor: click the V lane to split (Esc to exit)" style="width:auto;padding:1px 8px;font-size:12px">✂ Razor</button>
+      <button class="tbtn" id="voBtn" title="Record voiceover (mic)" style="width:auto;padding:1px 8px;font-size:12px">🎙️ Voiceover</button>
       <span class="spacer"></span>
       <span class="kbd">drag edges = trim · drag clip = reorder · wheel = scroll · ⌘wheel = zoom · space = play · S = split</span>
     </div>

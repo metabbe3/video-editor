@@ -5,6 +5,7 @@
 import { timelineOf } from '../core/Compositor.js';
 import { CAPTION_LABELS } from './labels.js';
 import { EFFECTS, clampParams } from '../effects/clipfx.js';
+import { nextRotate, SPEED_CURVE_PRESETS } from '../../engine/clip-ops.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -79,6 +80,100 @@ export function renderInspector(app) {
   fz.onclick = () => app.mutateClip(i, { freeze: k.freeze ? undefined : 1 });
   presets.appendChild(fz);
   el.appendChild(presets);
+
+  // 📈 Speed curve / ramp
+  const curveRow = document.createElement('div');
+  curveRow.className = 'irow';
+  curveRow.style.flexWrap = 'wrap';
+  const curveLab = document.createElement('span');
+  curveLab.textContent = 'Curve:';
+  curveLab.style.cssText = 'font-size:11px;color:var(--ink-2);margin-right:4px';
+  curveRow.appendChild(curveLab);
+  const curves = [
+    ['Off', null],
+    ['Hero', SPEED_CURVE_PRESETS.hero],
+    ['Ramp In', SPEED_CURVE_PRESETS.rampIn],
+    ['Ramp Out', SPEED_CURVE_PRESETS.rampOut],
+    ['Montage', SPEED_CURVE_PRESETS.montage],
+  ];
+  for (const [name, pts] of curves) {
+    const isCur = (!pts && !k.speedCurve) || (pts && JSON.stringify(k.speedCurve) === JSON.stringify(pts));
+    const b = document.createElement('button');
+    b.className = 'tbtn';
+    b.style.cssText = `width:auto;padding:1px 7px;font-size:11px${isCur ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+    b.textContent = name;
+    b.onclick = () => app.mutateClip(i, { speedCurve: pts || undefined });
+    curveRow.appendChild(b);
+  }
+  el.appendChild(curveRow);
+
+  // ↻ Rotate & ⇄ Flip
+  const orientRow = document.createElement('div');
+  orientRow.className = 'irow';
+  const rotBtn = document.createElement('button');
+  rotBtn.className = 'tbtn';
+  rotBtn.style.cssText = 'width:auto;padding:2px 9px;font-size:11.5px';
+  rotBtn.textContent = k.rotate ? `↻ Rotate ${k.rotate}°` : '↻ Rotate 90°';
+  rotBtn.onclick = () => app.mutateClip(i, { rotate: nextRotate(k.rotate) });
+  const flipBtn = document.createElement('button');
+  flipBtn.className = 'tbtn';
+  flipBtn.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${k.flipH ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+  flipBtn.textContent = k.flipH ? '⇄ Mirror H (on)' : '⇄ Mirror H';
+  flipBtn.onclick = () => app.mutateClip(i, { flipH: k.flipH ? undefined : true });
+  orientRow.append(rotBtn, flipBtn);
+
+  // ✂️ Free Crop
+  const isCropping = app.cropModeClipIndex === i;
+  const cropBtn = document.createElement('button');
+  cropBtn.className = 'tbtn';
+  cropBtn.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${isCropping ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+  cropBtn.textContent = isCropping ? '📐 Done crop' : '📐 Crop';
+  cropBtn.title = 'Drag on the player to crop rectangle';
+  cropBtn.onclick = () => app.toggleCropMode(i);
+  orientRow.appendChild(cropBtn);
+  if (k.cropRect) {
+    const rstCrop = document.createElement('button');
+    rstCrop.className = 'tbtn';
+    rstCrop.style.cssText = 'width:auto;padding:2px 7px;font-size:11px;color:var(--danger)';
+    rstCrop.textContent = '✕ Reset crop';
+    rstCrop.onclick = () => {
+      app.mutateClip(i, { cropRect: undefined });
+      if (app.cropModeClipIndex === i) app.toggleCropMode(i);
+    };
+    orientRow.appendChild(rstCrop);
+  }
+  el.appendChild(orientRow);
+
+  // 🔊 Audio fade in/out
+  const fadeRow = document.createElement('div');
+  fadeRow.className = 'irow';
+  fadeRow.style.gap = '8px';
+  const inCol = document.createElement('div');
+  inCol.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:2px';
+  const inLab = document.createElement('label');
+  inLab.style.fontSize = '10.5px';
+  inLab.textContent = `Fade in: ${k.fadeIn || 0}ms`;
+  const inRng = document.createElement('input');
+  inRng.type = 'range'; inRng.min = '0'; inRng.max = '2000'; inRng.step = '50';
+  inRng.value = String(k.fadeIn || 0);
+  inRng.oninput = () => { inLab.textContent = `Fade in: ${inRng.value}ms`; };
+  inRng.onchange = () => app.mutateClip(i, { fadeIn: Number(inRng.value) || undefined });
+  inCol.append(inLab, inRng);
+
+  const outCol = document.createElement('div');
+  outCol.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:2px';
+  const outLab = document.createElement('label');
+  outLab.style.fontSize = '10.5px';
+  outLab.textContent = `Fade out: ${k.fadeOut || 0}ms`;
+  const outRng = document.createElement('input');
+  outRng.type = 'range'; outRng.min = '0'; outRng.max = '2000'; outRng.step = '50';
+  outRng.value = String(k.fadeOut || 0);
+  outRng.oninput = () => { outLab.textContent = `Fade out: ${outRng.value}ms`; };
+  outRng.onchange = () => app.mutateClip(i, { fadeOut: Number(outRng.value) || undefined });
+  outCol.append(outLab, outRng);
+
+  fadeRow.append(inCol, outCol);
+  el.appendChild(fadeRow);
 
   // ✨ per-clip effect stack — toggle chips + param sliders from the registry schema
   const fxCtrl = document.createElement('div');

@@ -7,13 +7,22 @@
 // play in input order; source times may jump backward between neighbors.
 // Callers pass pre-normalized, non-overlapping keeps (edit-engine.normalizeKeeps).
 
+import { speedCurveDuration } from './clip-ops.js';
+
 export function buildTimeline(keep, { fps = 30 } = {}) {
   const segs = keep
     .filter((k) => k.out > k.in)
     .map((k) => {
-      const rate = k.speed > 0 ? k.speed : 1; // QaGate blocks bad speeds; guard div-by-0 anyway
+      const curve = k.speedCurve && k.speedCurve.length >= 2 ? k.speedCurve : null;
+      const rate = curve
+        ? (k.out - k.in) / speedCurveDuration(k.out - k.in, curve)
+        : (k.speed > 0 ? k.speed : 1); // QaGate blocks bad speeds; guard div-by-0 anyway
       const freeze = k.freeze > 0 ? k.freeze : 0; // seconds holding the OUT frame after the clip
-      return { in: k.in, out: k.out, why: k.why, words: k.words, rate, freeze, dur: (k.out - k.in) / rate + freeze };
+      return {
+        in: k.in, out: k.out, why: k.why, words: k.words, rate, freeze,
+        speedCurve: curve, fadeIn: k.fadeIn, fadeOut: k.fadeOut,
+        dur: (k.out - k.in) / rate + freeze,
+      };
     }); // input order = play order
   let cum = 0;
   const starts = [];

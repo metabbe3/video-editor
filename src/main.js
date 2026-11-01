@@ -32,6 +32,8 @@ import { drawGuides, GUIDE_MODES } from './elements/guides.js';
 import { toSrt } from '../engine/srt.js';
 import { renderSfx, SFX_PRESETS } from './core/AudioMix.js';
 import { captionsOf } from './core/Compositor.js';
+import { saveProject, loadProject, makeProjectKey, serializeProjectState, applyProjectSnapshot } from '../engine/project-store.js';
+import { PLATFORM_EXPORT_PRESETS, normalizeCropRect } from '../engine/clip-ops.js';
 
 const $ = (id) => document.getElementById(id);
 const LS = { get: (k, d) => localStorage.getItem(k) ?? d, set: (k, v) => localStorage.setItem(k, v) };
@@ -52,7 +54,13 @@ export class App {
     this.redoStack = [];
     this.trimAnchor = null;
     this.selectedClipIndex = null;
+    this.cropModeClipIndex = null;
+    this.isRecordingVo = false;
+    this.mediaRecorder = null;
+    this.recordedChunks = [];
+    this.pendingRestoreSnapshot = null;
     this.faceTimer = 0;
+    this._saveTimer = 0;
     this.tlv = createTimelineView($('timeline'), this.timelineHost());
     this.shell = initShell();
     this.wire();
@@ -97,6 +105,10 @@ export class App {
     p.captionsMode = LS.get('cap', 'word-pop');
     p.captionStyle = LS.get('capStyle', 'hormozi');
     p.fit = LS.get('fit', 'cover');
+    try {
+      const savedAdj = JSON.parse(LS.get('adjust', 'null'));
+      if (savedAdj) p.adjust = Object.assign(p.adjust, savedAdj);
+    } catch {}
     $('platform').value = p.platform;
     $('orient').value = p.orientation;
     $('resSel').value = String(p.resolution);
@@ -104,6 +116,14 @@ export class App {
     $('capMode').value = p.captionsMode === 'off' ? 'off' : 'word-pop';
     $('capStyle').value = p.captionStyle;
     $('fitMode').value = p.fit;
+    if ($('adjBright')) $('adjBright').value = String(p.adjust?.brightness || 0);
+    if ($('adjContrast')) $('adjContrast').value = String(p.adjust?.contrast || 0);
+    if ($('adjSat')) $('adjSat').value = String(p.adjust?.saturation || 0);
+    if ($('adjTemp')) $('adjTemp').value = String(p.adjust?.temperature || 0);
+    if ($('adjBrightV')) $('adjBrightV').textContent = String(p.adjust?.brightness || 0);
+    if ($('adjContrastV')) $('adjContrastV').textContent = String(p.adjust?.contrast || 0);
+    if ($('adjSatV')) $('adjSatV').textContent = String(p.adjust?.saturation || 0);
+    if ($('adjTempV')) $('adjTempV').textContent = String(p.adjust?.temperature || 0);
     $('volDb').value = LS.get('vol', '0');
     // GLM credentials + prompt (the round-7 rewrite dropped these — the AI
     // silently stopped working because the key booted empty and the endpoint
@@ -140,6 +160,56 @@ export class App {
   // ---------- wiring ----------
   wire() {
     const on = (id, ev, fn) => $(id)?.addEventListener(ev, fn);
+
+    on('restoreBtn', 'click', () => this.restoreLastEdit());
+    on('dismissRestoreBtn', 'click', () => this.hideRestoreBanner());
+    on('voBtn', 'click', () => this.toggleVoiceover());
+
+    // Color adjust sliders (Global polish / Looks)
+    const updateAdj = (key, val, labelId) => {
+      this.project.settings.adjust[key] = Number(val);
+      if ($(labelId)) $(labelId).textContent = String(val);
+      LS.set('adjust', JSON.stringify(this.project.settings.adjust));
+      if (this.project.edl) {
+        this.project.edl.style.adjust = { ...this.project.settings.adjust };
+        this.preview.redraw();
+      }
+      this.scheduleSave();
+    };
+    on('adjBright', 'input', () => updateAdj('brightness', $('adjBright').value, 'adjBrightV'));
+    on('adjContrast', 'input', () => updateAdj('contrast', $('adjContrast').value, 'adjContrastV'));
+    on('adjSat', 'input', () => updateAdj('saturation', $('adjSat').value, 'adjSatV'));
+    on('adjTemp', 'input', () => updateAdj('temperature', $('adjTemp').value, 'adjTempV'));
+
+    // Platform export presets
+    on('exportPreset', 'change', () => {
+      const val = $('exportPreset').value;
+      if (val === 'custom') return;
+      const preset = PLATFORM_EXPORT_PRESETS[val];
+      if (!preset) return;
+      this.pushUndo();
+      const p = this.project.settings;
+      p.orientation = preset.orientation;
+      p.resolution = preset.resolution;
+      p.fps = preset.fps;
+      p.quality = preset.quality;
+      $('orient').value = preset.orientation;
+      $('resSel').value = String(preset.resolution);
+      $('fpsSel').value = String(preset.fps);
+      $('quality').value = String(preset.quality);
+      LS.set('orient', preset.orientation);
+      LS.set('res', String(preset.resolution));
+      LS.set('fps', String(preset.fps));
+      LS.set('quality', String(preset.quality));
+      document.querySelectorAll('#aspectSeg button').forEach((x) => {
+        x.style.background = x.dataset.orient === preset.orientation ? 'var(--bg-raise)' : '';
+      });
+      if (this.project.edl) {
+        this.rebuild();
+        this.syncFrame();
+      }
+      this.toast(`Preset applied: ${preset.label}`);
+    });
 
     on('pickBtn', 'click', async () => {
       if (this.busy) return;
@@ -305,7 +375,10 @@ export class App {
 
     // guides (preview-only): off → safe → grid → tiktok
     this.guideMode = LS.get('guides', 'off');
-    this.preview.overlay = (ctx, w, h) => drawGuides(ctx, w, h, this.guideMode);
+    this.preview.overlay = (ctx, w, h) => {
+      drawGuides(ctx, w, h, this.guideMode);
+      if (this.cropModeClipIndex != null) this.drawCropOverlay(ctx, w, h);
+    };
     const syncGuides = () => {
       $('guideChip').classList.toggle('on', this.guideMode !== 'off');
       $('guideChip').title = `preview guides: ${GUIDE_MODES.join(' → ')}`;
@@ -399,6 +472,13 @@ export class App {
       if (!this.project.edl || e.target.closest('button')) return;
       wrap.setPointerCapture(e.pointerId);
       const r = wrap.getBoundingClientRect();
+      if (this.cropModeClipIndex != null) {
+        this.pushUndo();
+        const startX = (e.clientX - r.left) / r.width;
+        const startY = (e.clientY - r.top) / r.height;
+        pan = { crop: true, startX, startY };
+        return;
+      }
       const nx = (e.clientX - r.left) / r.width, ny = (e.clientY - r.top) / r.height;
       const hi = overlayHit(this.project.overlays, nx, ny, this.preview.editedTime());
       if (hi != null) { this.pushUndo(); pan = { ov: hi }; return; }
@@ -407,6 +487,23 @@ export class App {
     wrap.addEventListener('pointermove', (e) => {
       if (!pan || !this.project.edl) return;
       const r = wrap.getBoundingClientRect();
+      if (pan.crop) {
+        const curX = (e.clientX - r.left) / r.width;
+        const curY = (e.clientY - r.top) / r.height;
+        const x = Math.min(pan.startX, curX);
+        const y = Math.min(pan.startY, curY);
+        const w = Math.abs(curX - pan.startX);
+        const h = Math.abs(curY - pan.startY);
+        if (w > 0.02 && h > 0.02) {
+          const rect = normalizeCropRect({ x, y, w, h });
+          const clip = this.project.edl?.keep?.[this.cropModeClipIndex];
+          if (clip) {
+            clip.cropRect = rect;
+            this.preview.redraw();
+          }
+        }
+        return;
+      }
       if (pan.ov != null) {
         this.updateOverlay(pan.ov, { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }, { quiet: true });
         return;
@@ -416,7 +513,14 @@ export class App {
       this.setReframe({ px: m.px - (e.clientX - pan.x) / r.width / m.zoom, py: m.py - (e.clientY - pan.y) / r.height / m.zoom });
       pan = { x: e.clientX, y: e.clientY };
     });
-    wrap.addEventListener('pointerup', () => (pan = null));
+    wrap.addEventListener('pointerup', () => {
+      if (pan?.crop) {
+        this.refreshDerived();
+        this.renderInspector();
+        this.scheduleSave();
+      }
+      pan = null;
+    });
     wrap.addEventListener('wheel', (e) => {
       if (!this.project.edl) return;
       e.preventDefault();
@@ -508,6 +612,10 @@ export class App {
     }
     sel.value = p.reg.arollId ?? '';
     sel.onchange = () => { p.reg.arollId = sel.value; p.resetAll(); this.renderFiles(); this.renderTranscript(); this.renderChapters(); this.drawAll(-1); this.syncButtons(); };
+    const curAroll = p.reg.items?.find((x) => x.id === p.reg.arollId);
+    if (curAroll?.file) {
+      this.checkSavedEdit(curAroll.file, curAroll.name);
+    }
   }
 
   // ---------- analyze ----------
@@ -582,6 +690,7 @@ export class App {
     this.syncFrame();
     this.syncButtons();
     if (p.settings.autoframe) this.scheduleFacePass();
+    this.scheduleSave();
   }
 
   refreshDerived() {
@@ -593,6 +702,164 @@ export class App {
     this.renderTranscript();
     this.drawAll();
     if (p.settings.autoframe) this.scheduleFacePass();
+    this.scheduleSave();
+  }
+
+  scheduleSave() {
+    clearTimeout(this._saveTimer);
+    this._saveTimer = setTimeout(() => this.persistProject(), 1000);
+  }
+
+  async persistProject() {
+    const p = this.project;
+    if (!p.reg?.arollId || !p.edl) return;
+    const arollItem = p.reg.items?.find((r) => r.id === p.reg.arollId);
+    const file = arollItem?.file;
+    const key = makeProjectKey(arollItem?.name || p.reg.arollId, file?.size);
+    const snap = serializeProjectState(p);
+    await saveProject(key, snap);
+  }
+
+  async checkSavedEdit(file, name) {
+    if (!file && !name) return;
+    const key = makeProjectKey(name || file?.name, file?.size);
+    const snap = await loadProject(key);
+    if (snap && snap.edl) {
+      this.pendingRestoreSnapshot = snap;
+      const banner = $('restoreBanner');
+      const msg = $('restoreMsg');
+      if (banner && msg) {
+        const timeAgo = snap.savedAt ? new Date(snap.savedAt).toLocaleTimeString() : 'earlier';
+        msg.textContent = `Saved edit found for ${name || file.name} (${timeAgo}). Restore last edit?`;
+        banner.hidden = false;
+      }
+      if (!this.project.edl && snap.words?.length) {
+        this.restoreLastEdit(true);
+      }
+    } else {
+      this.hideRestoreBanner();
+    }
+  }
+
+  hideRestoreBanner() {
+    this.pendingRestoreSnapshot = null;
+    const banner = $('restoreBanner');
+    if (banner) banner.hidden = true;
+  }
+
+  restoreLastEdit(isAuto = false) {
+    const snap = this.pendingRestoreSnapshot;
+    if (!snap) return;
+    const p = this.project;
+    applyProjectSnapshot(p, snap);
+    if (p.reg?.arollId && p.edl) p.edl.style.arollId = p.reg.arollId;
+    this.rebuild();
+    if (!isAuto) {
+      this.hideRestoreBanner();
+      this.toast('Restored last edit');
+    }
+  }
+
+  toggleCropMode(i) {
+    if (this.cropModeClipIndex === i) {
+      this.cropModeClipIndex = null;
+    } else {
+      this.cropModeClipIndex = i;
+      this.selectClip(i);
+      this.toast('Crop mode: drag on player to set crop rectangle');
+    }
+    this.renderInspector();
+    this.preview.redraw();
+  }
+
+  drawCropOverlay(ctx, w, h) {
+    const p = this.project;
+    const clip = p.edl?.keep?.[this.cropModeClipIndex];
+    if (!clip) return;
+    const cr = normalizeCropRect(clip.cropRect || { x: 0, y: 0, w: 1, h: 1 });
+    const x = cr.x * w, y = cr.y * h, cw = cr.w * w, ch = cr.h * h;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(0, 0, w, y);
+    ctx.fillRect(0, y + ch, w, h - (y + ch));
+    ctx.fillRect(0, y, x, ch);
+    ctx.fillRect(x + cw, y, w - (x + cw), ch);
+
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, cw, ch);
+
+    ctx.fillStyle = '#fff';
+    const s = 6;
+    ctx.fillRect(x - s / 2, y - s / 2, s, s);
+    ctx.fillRect(x + cw - s / 2, y - s / 2, s, s);
+    ctx.fillRect(x - s / 2, y + ch - s / 2, s, s);
+    ctx.fillRect(x + cw - s / 2, y + ch - s / 2, s, s);
+    ctx.restore();
+  }
+
+  async toggleVoiceover() {
+    if (!this.isRecordingVo) {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        return this.toast('Microphone not supported in this browser');
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        this.recordedChunks = [];
+        this.mediaRecorder = new MediaRecorder(stream);
+        this.mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) this.recordedChunks.push(e.data);
+        };
+        this.recordStartT = this.preview.tl ? this.preview.editedTime() : 0;
+        this.recordStartTime = performance.now();
+        this.isRecordingVo = true;
+        this.mediaRecorder.start();
+        const btn = $('voBtn');
+        if (btn) {
+          btn.textContent = '⏹ Stop VO';
+          btn.style.background = 'var(--danger)';
+          btn.style.color = '#fff';
+          btn.style.borderColor = 'var(--danger)';
+        }
+        this.toast('Recording voiceover… click Stop when done');
+      } catch (err) {
+        this.toast(`Microphone error: ${err.message}`);
+      }
+    } else {
+      this.isRecordingVo = false;
+      const btn = $('voBtn');
+      if (btn) {
+        btn.textContent = '🎙️ Voiceover';
+        btn.style.background = '';
+        btn.style.color = '';
+        btn.style.borderColor = '';
+      }
+      if (this.mediaRecorder) {
+        this.mediaRecorder.onstop = () => {
+          const blob = new Blob(this.recordedChunks, { type: this.mediaRecorder.mimeType || 'audio/webm' });
+          const dur = (performance.now() - this.recordStartTime) / 1000;
+          const id = `vo-${Date.now()}`;
+          const name = `Voiceover ${new Date().toLocaleTimeString()}`;
+          const file = new File([blob], `${id}.webm`, { type: blob.type });
+
+          this.project.reg = this.project.reg || { items: [] };
+          this.project.reg.items.push({ id, name, kind: 'audio', file });
+
+          this.pushUndo();
+          this.project.edl = this.project.edl || {};
+          this.project.edl.audioOverlays = this.project.edl.audioOverlays || [];
+          this.project.edl.audioOverlays.push({
+            id, src: id, at: Math.max(0, this.recordStartT), dur: Math.max(0.5, dur), volume: 1, name,
+          });
+          this.refreshDerived();
+          this.scheduleSave();
+          this.toast(`Voiceover recorded (${dur.toFixed(1)}s)`);
+        };
+        this.mediaRecorder.stop();
+        this.mediaRecorder.stream?.getTracks().forEach((t) => t.stop());
+      }
+    }
   }
 
   // ---------- face pass ----------
@@ -1028,6 +1295,7 @@ export class App {
       this.renderOverlayList();
     } else this.rebuild();
     this.toast(msg);
+    this.scheduleSave();
   }
 
   // ---------- transport / export ----------

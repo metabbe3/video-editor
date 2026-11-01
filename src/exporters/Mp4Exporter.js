@@ -12,6 +12,7 @@ import { arollLayers } from '../elements/VideoLayer.js';
 import { TUNING } from '../../engine/edit-engine.js';
 import { computeDuckEnvelope, renderSfx, audioInFor } from '../core/AudioMix.js';
 import { resampleMonoTo } from '../../engine/analyze.js';
+import { clipFadeGain, evalSpeedCurve } from '../../engine/clip-ops.js';
 
 export async function exportVideo({ edl, getFile, canvas, compositor, onProgress, qualityFactor = 0.1, gainDb = 0, sfx = false }) {
   const tl = timelineOf(edl);
@@ -78,6 +79,33 @@ export async function exportVideo({ edl, getFile, canvas, compositor, onProgress
         if (pk > 0.98) for (let i = 0; i < program.length; i++) program[i] *= 0.98 / pk;
       }
     } catch (e) { console.warn('bgm mix skipped:', e.message); }
+  }
+
+  // Audio overlays (voiceover): mix into program at specified edited start time
+  if (edl.audioOverlays?.length && program) {
+    for (const ao of edl.audioOverlays) {
+      try {
+        const file = getFile(ao.src);
+        if (!file) continue;
+        const voInput = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
+        const voTrack = await voInput.getPrimaryAudioTrack();
+        if (voTrack) {
+          const voSink = new AudioBufferSink(voTrack);
+          let cursor = Math.round(ao.at * RATE);
+          const vol = ao.volume ?? 1;
+          for await (const { buffer } of voSink.buffers(0, ao.dur || 3600)) {
+            const mono = resampleMonoTo(buffer, RATE);
+            for (let i = 0; i < mono.length && cursor < program.length; i++, cursor++) {
+              program[cursor] += mono[i] * vol;
+            }
+            if (cursor >= program.length) break;
+          }
+        }
+      } catch (e) { console.warn('audioOverlay mix skipped:', e.message); }
+    }
+    let pk = 0;
+    for (let i = 0; i < program.length; i++) pk = Math.max(pk, Math.abs(program[i]));
+    if (pk > 0.98) for (let i = 0; i < program.length; i++) program[i] *= 0.98 / pk;
   }
 
   // ---- output target: stream to disk when possible, else buffer+download ----
@@ -201,23 +229,34 @@ async function assembleProgram(track, tl, rate, onProgress, opts = {}) {
   for (let i = 0; i < tl.segments.length; i++) {
     const s = tl.segments[i];
     const spd = s.rate || 1;
+    const curve = s.speedCurve;
+    const k = edl?.keep?.[i];
+    const fadeInSec = (k?.fadeIn || 0) / 1000;
+    const fadeOutSec = (k?.fadeOut || 0) / 1000;
+    const playLen = (s.out - s.in) / spd;
+
     // J-cut: audio leads picture on tight joins (only at native speed — a lead
     // span resampled by spd would drift; revisit if J-cut + retime matters)
-    const aIn = jCuts && edl && spd === 1 ? audioInFor(edl.keep, i) : s.in;
+    const aIn = jCuts && edl && spd === 1 && !curve ? audioInFor(edl.keep, i) : s.in;
     let got = 0, chunkOff = 0, srcPos = 0;
     try {
       for await (const { buffer } of sink.buffers(aIn, s.out)) {
         const mono = resampleMonoTo(buffer, rate);
-        // linear stride resample by spd — integer spd is sample-exact (frac 0).
-        // ponytail: linear resample = chipmunk up / muddy down, aliasing >2× on
-        // speech; upgrade = windowed-sinc in engine/analyze.js + preview
-        // preservesPitch=true, together.
         while (got < lengths[i] && srcPos < chunkOff + mono.length) {
           const p = srcPos - chunkOff;
           const i0 = Math.floor(p), frac = p - i0;
           const a = mono[i0] ?? 0, b = mono[i0 + 1] ?? a;
-          out[cursor + got++] = a + (b - a) * frac;
-          srcPos += spd;
+          let sample = a + (b - a) * frac;
+
+          if (fadeInSec > 0 || fadeOutSec > 0) {
+            const localT = got / rate;
+            sample *= clipFadeGain(localT, playLen, fadeInSec, fadeOutSec);
+          }
+
+          out[cursor + got++] = sample;
+          const progress = (s.out - s.in > 0) ? srcPos / (s.out - s.in) : 0;
+          const stepRate = curve ? evalSpeedCurve(curve, progress) : spd;
+          srcPos += stepRate;
         }
         chunkOff += mono.length;
         if (got >= lengths[i]) break;

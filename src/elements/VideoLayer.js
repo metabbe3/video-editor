@@ -5,6 +5,7 @@ import { punchScale, EASE } from '../../engine/motion.js';
 import { reframeAt } from '../../engine/reframe.js';
 import { timelineOf } from '../core/Compositor.js';
 import { EFFECTS, clampParams, maskGeometry, hasClipFx } from '../effects/clipfx.js';
+import { normalizeCropRect } from '../../engine/clip-ops.js';
 
 // cached scratch canvases (content / mask / composite) — resized on demand,
 // zero per-frame allocation. ponytail: per-clip offscreen ≈1-3 ms/frame at
@@ -57,7 +58,7 @@ export class VideoLayer {
     const slot = (edl.broll || []).find((b) => t >= b.at && t < b.at + b.dur);
     if (slot) {
       const drawable = assets.frame(slot.src, (t - slot.at) + (slot.srcIn || 0));
-      if (drawable) this.region(ctx, drawable, { x: 0, y: 0, w, h, mode: 'cover' }, 1, 1, edl, t);
+      if (drawable) this.region(ctx, drawable, { x: 0, y: 0, w, h, mode: 'cover' }, 1, 1, edl, t, w, h, slot);
       return;
     }
     const punch = punchScale(t, edl.punches || []);
@@ -65,8 +66,9 @@ export class VideoLayer {
     const drawPlain = (c) => {
       for (const layer of layers) {
         const drawable = assets.frame(edl.style.arollId, layer.srcTime);
-        const layout = edl.keep[layer.seg]?.layout ?? 'full';
-        if (drawable) this.region(c, drawable, layout, layer.alpha, punch * layer.scale, edl, t, w, h);
+        const clip = edl.keep[layer.seg];
+        const layout = clip?.layout ?? 'full';
+        if (drawable) this.region(c, drawable, layout, layer.alpha, punch * layer.scale, edl, t, w, h, clip);
       }
     };
     // per-clip fx apply to the DOMINANT crossfade layer only.
@@ -125,31 +127,58 @@ export class VideoLayer {
     ctx.fillRect(0, 0, w, h);
   }
 
-  region(ctx, drawable, layout, alpha, scale, edl, t, W, H) {
+  region(ctx, drawable, layout, alpha, scale, edl, t, W, H, clip) {
+    const fit = edl?.style.fit ?? 'cover';
+    const isBlurPad = fit === 'blur-pad' || fit === 'blur';
+    const isContain = fit === 'contain';
     const regions = layout === 'split'
       ? [{ x: 0, y: 0, w: W, h: H * 0.6, mode: 'contain' }, { x: 0, y: H * 0.6, w: W, h: H * 0.4, mode: 'cover' }]
-      : [{ x: 0, y: 0, w: W, h: H, mode: edl?.style.fit === 'blur' ? 'blur' : 'cover' }];
+      : [{ x: 0, y: 0, w: W, h: H, mode: isBlurPad ? 'blur-pad' : (isContain ? 'contain' : 'cover') }];
     const d = srcDims(drawable);
     for (const r of regions) {
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
-      if (scale !== 1) {
-        ctx.translate(r.x + r.w / 2, r.y + r.h / 2);
-        ctx.scale(scale, scale);
-        ctx.translate(-(r.x + r.w / 2), -(r.y + r.h / 2));
+
+      const cx = r.x + r.w / 2;
+      const cy = r.y + r.h / 2;
+      const rot = ((clip?.rotate || 0) % 360 + 360) % 360;
+      const flipH = !!clip?.flipH;
+
+      let bw = r.w, bh = r.h;
+      if (rot === 90 || rot === 270) {
+        bw = r.h; bh = r.w;
       }
-      if (!d.w || !d.h) drawCover(ctx, drawable, r.x, r.y, r.w, r.h);
-      else if (r.mode === 'cover') {
-        const crop = reframeAt(edl.faces, t, edl.style.reframe, r.w / r.h, d.w / d.h);
-        ctx.drawImage(drawable, crop.x * d.w, crop.y * d.h, crop.w * d.w, crop.h * d.h, r.x, r.y, r.w, r.h);
-      } else {
+      const bx = cx - bw / 2;
+      const by = cy - bh / 2;
+
+      if (scale !== 1 || rot || flipH) {
+        ctx.translate(cx, cy);
+        if (scale !== 1) ctx.scale(scale, scale);
+        if (flipH) ctx.scale(-1, 1);
+        if (rot) ctx.rotate((rot * Math.PI) / 180);
+        ctx.translate(-cx, -cy);
+      }
+
+      if (!d.w || !d.h) {
+        drawCover(ctx, drawable, bx, by, bw, bh);
+      } else if (clip?.cropRect) {
+        const cr = normalizeCropRect(clip.cropRect);
+        const sx = cr.x * d.w, sy = cr.y * d.h, sw = cr.w * d.w, sh = cr.h * d.h;
+        ctx.drawImage(drawable, sx, sy, sw, sh, bx, by, bw, bh);
+      } else if (r.mode === 'cover') {
+        const crop = reframeAt(edl.faces, t, edl.style.reframe, bw / bh, d.w / d.h);
+        ctx.drawImage(drawable, crop.x * d.w, crop.y * d.h, crop.w * d.w, crop.h * d.h, bx, by, bw, bh);
+      } else if (r.mode === 'contain') {
+        const s = Math.min(bw / d.w, bh / d.h);
+        ctx.drawImage(drawable, bx + (bw - d.w * s) / 2, by + (bh - d.h * s) / 2, d.w * s, d.h * s);
+      } else { // blur-pad
         ctx.save();
         ctx.filter = 'blur(36px) saturate(1.25)';
-        drawCover(ctx, drawable, r.x - 24, r.y - 24, r.w + 48, r.h + 48);
+        drawCover(ctx, drawable, bx - 24, by - 24, bw + 48, bh + 48);
         ctx.restore();
-        const s = Math.min(r.w / d.w, r.h / d.h);
-        ctx.drawImage(drawable, r.x + (r.w - d.w * s) / 2, r.y + (r.h - d.h * s) / 2, d.w * s, d.h * s);
+        const s = Math.min(bw / d.w, bh / d.h);
+        ctx.drawImage(drawable, bx + (bw - d.w * s) / 2, by + (bh - d.h * s) / 2, d.w * s, d.h * s);
       }
       ctx.restore();
     }
