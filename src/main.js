@@ -299,6 +299,13 @@ export class App {
     on('exportBtn', 'click', () => this.export());
     on('playBtn', 'click', () => this.togglePlay());
     on('settingsBtn', 'click', () => this.shell.show('settings'));
+    // Header declutter: toggle Ask AI + aspect ratio group (hidden by default)
+    on('moreBtn', 'click', () => {
+      const ex = $('headerExtras');
+      ex.hidden = !ex.hidden;
+      $('moreBtn').style.background = ex.hidden ? '' : 'var(--accent)';
+      $('moreBtn').style.color = ex.hidden ? '' : '#fff';
+    });
     on('copyChaptersBtn', 'click', () => this.copyChapters());
     on('modeChip', 'click', () => {
       const p = this.project;
