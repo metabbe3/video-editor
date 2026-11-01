@@ -78,6 +78,7 @@
   .tbtn.primary { background: var(--accent); color: #fff; font-weight: 600; }
   .tbtn.primary:hover { background: var(--accent-ink); }
   .tbtn:disabled { opacity: 0.4; cursor: default; }
+  .tbtn.icon { padding: 6px 8px; font-size: 15px; line-height: 1; }
 
   /* ---------- shell: rail + panels | stage | inspector — OpenCut layout ---------- */
   main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -94,6 +95,7 @@
   }
   #rail button:hover { background: var(--bg); }
   #rail button.on { background: var(--accent); color: #fff; }
+  #rail button { font-size: var(--fs-mono); font-weight: 600; letter-spacing: 0; }
   #panelView { flex: 1; min-width: 0; overflow-y: auto; padding: 14px; background: var(--bg-raise); }
   .panel { display: flex; flex-direction: column; gap: var(--sp4); }
   .panel[hidden] { display: none; }
@@ -377,12 +379,12 @@
       <button class="tbtn" data-orient="1:1" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">1:1</button>
     </span>
   </span>
-  <button class="tbtn" id="moreBtn" title="Show / hide aspect ratio & Ask AI bar">⋯</button>
+  <button class="tbtn" id="moreBtn" title="Show / hide aspect ratio &amp; Ask AI bar">⋯</button>
   <span id="durChip" style="font-size:var(--fs-mono);color:var(--ink-2);font-variant-numeric:tabular-nums"></span>
   <span class="chip" id="debateChip" title="editorial council debate log" hidden>🧠 Council ▾</span>
-  <span class="chip" id="modeChip" title="current edit source">local</span>
-  <button class="tbtn" id="chatToggleBtn" title="Toggle Nila Chat (⌘K)">💬 Chat</button>
-  <button class="tbtn" id="settingsBtn">Settings</button>
+  <span class="chip" id="modeChip" title="current edit source — click to switch">local</span>
+  <button class="tbtn icon" id="chatToggleBtn" title="Nila Chat (⌘K)">💬</button>
+  <button class="tbtn" id="settingsBtn" title="Settings">Settings</button>
   <button class="tbtn primary" id="exportBtn" disabled>Export MP4</button>
 </header>
 
@@ -396,14 +398,14 @@
   <div id="shellTop">
     <div id="railWrap">
       <nav id="rail">
-        <button data-panel="media" title="Media">🎞</button>
-        <button data-panel="ai" title="AI edit">🤖</button>
-        <button data-panel="text" title="Text">✍️</button>
-        <button data-panel="sticker" title="Stickers">😀</button>
-        <button data-panel="effects" title="Effects">✨</button>
-        <button data-panel="sound" title="Sounds">🎵</button>
-        <button data-panel="captions" title="Captions">💬</button>
-        <button data-panel="settings" title="Settings">⚙️</button>
+        <button data-panel="media" title="Media">M</button>
+        <button data-panel="ai" title="AI edit">AI</button>
+        <button data-panel="text" title="Text">T</button>
+        <button data-panel="sticker" title="Stickers">S</button>
+        <button data-panel="effects" title="Effects">FX</button>
+        <button data-panel="sound" title="Sounds">♪</button>
+        <button data-panel="captions" title="Captions">CC</button>
+        <button data-panel="settings" title="Settings">⚙</button>
       </nav>
       <div id="panelView">
         <section class="panel" data-panel="media">
@@ -681,12 +683,12 @@
         <span class="tsep"></span>
         <input type="range" id="zoomRange" min="0.6" max="4" step="0.05" value="1" title="zoom (also wheel on the player)">
         <span id="zoomVal" style="min-width:34px">1.0×</span>
-        <span class="chip" id="faceChip" title="face-aware auto framing">auto-frame</span>
-        <span class="chip" id="guideChip" title="preview guides: off → safe zones → grid → TikTok UI (never exported)">guides</span>
-        <span class="chip" id="polishChip" title="LUT · HD sharpen · skin smooth">✨ Polish</span>
+        <span class="chip" id="faceChip" title="face-aware auto framing" hidden>auto-frame</span>
+        <span class="chip" id="guideChip" title="preview guides: off → safe zones → grid → TikTok UI (never exported)" hidden>guides</span>
+        <span class="chip" id="polishChip" title="LUT · HD sharpen · skin smooth" hidden>✨ Polish</span>
         <span class="chip" id="musicChip" title="BGM · auto-duck · SFX">🎵</span>
         <span class="chip" id="snapChip" title="magnetic snapping">🧲</span>
-        <span class="kbd" style="color:var(--ink-2)">drag player = pan · dblclick = reset</span>
+        <span class="chip" id="transportMore" title="show auto-frame, guides, polish">⋯</span>
       </div>
     </section>
 

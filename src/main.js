@@ -316,6 +316,13 @@ export class App {
     // ✨ Polish — lives in the Effects panel now
     this.compositor.polish = this.project.settings.polish ??= { lut: 'none', lutMix: 0.65, sharpen: 0, skinSmooth: 0, autoLevels: true };
     on('polishChip', 'click', () => this.shell.show('effects'));
+    // Transport declutter: ⋯ reveals rarely-used chips (auto-frame / guides / polish)
+    on('transportMore', 'click', () => {
+      const ids = ['faceChip', 'guideChip', 'polishChip'];
+      const anyHidden = ids.some((i) => $(i).hidden);
+      ids.forEach((i) => { $(i).hidden = !anyHidden; });
+      $('transportMore').classList.toggle('on', anyHidden);
+    });
     for (const b of document.querySelectorAll('[data-lut]')) {
       b.onclick = () => {
         this.compositor.polish.lut = b.dataset.lut;
