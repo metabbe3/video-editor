@@ -41,6 +41,8 @@ import {
 import { runDebateCouncil } from '../engine/council-vote.js';
 import { parseChatCommand, applyChatOp } from '../engine/chat-ops.js';
 import { calibrateThreshold, FILLER_RE } from '../engine/edit-engine.js';
+import { ChatDirector } from './agents/ChatDirector.js';
+import { ChatPanel } from './ui/ChatPanel.js';
 
 const $ = (id) => document.getElementById(id);
 const LS = { get: (k, d) => localStorage.getItem(k) ?? d, set: (k, v) => localStorage.setItem(k, v) };
@@ -56,6 +58,7 @@ export class App {
       model: () => $('glmModel').value,
       vision: () => $('visionOn').checked,
     });
+    this.director = new ChatDirector(this, this.project);
     this.busy = false;
     this.undoStack = [];
     this.redoStack = [];
@@ -73,6 +76,7 @@ export class App {
     this.pendingChatQuery = '';
     this.tlv = createTimelineView($('timeline'), this.timelineHost());
     this.shell = initShell();
+    this.chatPanel = new ChatPanel(this, this.director, this.project);
     this.wire();
     this.restoreSettings();
   }
@@ -567,6 +571,20 @@ export class App {
     this.preview.onEnded = () => { $('playBtn').textContent = 'Play'; };
 
     document.addEventListener('keydown', (e) => {
+      // ⌘K / Ctrl+K toggles the ChatDirector sidebar
+      if (e.code === 'KeyK' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        this.chatPanel?.toggle();
+        return;
+      }
+      // Escape closes sidebar and modals
+      if (e.code === 'Escape') {
+        this.chatPanel?.close();
+        this.closeContextMenu();
+        this.closeInlineChat();
+        if (this.razor) { this.razor = false; $('razorChip').classList.remove('on'); $('timeline').style.cursor = ''; }
+        this.selectClip(null);
+      }
       if (/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
       const p = this.project;
       if (e.code === 'Space') { e.preventDefault(); this.togglePlay(); }
@@ -577,15 +595,9 @@ export class App {
       if (e.code === 'ArrowRight') { this.preview.seekTo(t + 1 / 30); this.drawAll(); }
       if (e.code === 'KeyJ') { this.preview.seekTo(t - 3); this.drawAll(); }
       if (e.code === 'KeyL') { this.preview.seekTo(Math.min(t + 3, tl.duration)); this.drawAll(); }
-      if (e.code === 'KeyK' && this.preview.playing) this.togglePlay();
+      if (e.code === 'KeyK' && !e.metaKey && !e.ctrlKey && this.preview.playing) this.togglePlay();
       if (e.code === 'KeyS' && !e.metaKey && !e.ctrlKey) this.splitAt(t);
       if (e.code === 'KeyD' && !e.metaKey && !e.ctrlKey) this.duplicateClip(this.selectedClipIndex ?? tl.segmentAt(t));
-      if (e.code === 'Escape') {
-        this.closeContextMenu();
-        this.closeInlineChat();
-        if (this.razor) { this.razor = false; $('razorChip').classList.remove('on'); $('timeline').style.cursor = ''; }
-        this.selectClip(null);
-      }
       if ((e.code === 'Delete' || e.code === 'Backspace') && /BODY/.test(e.target.tagName)) this.deleteClipAt(this.selectedClipIndex ?? tl.segmentAt(t));
       if (e.code === 'KeyI') this.trimAtPlayhead('in');
       if (e.code === 'KeyO') this.trimAtPlayhead('out');
@@ -727,6 +739,7 @@ export class App {
     this.syncFrame();
     this.syncButtons();
     if (p.settings.autoframe) this.scheduleFacePass();
+    this.chatPanel?.renderStatusLine();
     this.scheduleSave();
   }
 
@@ -739,6 +752,7 @@ export class App {
     this.renderTranscript();
     this.drawAll();
     if (p.settings.autoframe) this.scheduleFacePass();
+    this.chatPanel?.renderStatusLine();
     this.scheduleSave();
   }
 
@@ -792,6 +806,8 @@ export class App {
     if (p.reg?.arollId && p.edl) p.edl.style.arollId = p.reg.arollId;
     this.rebuild();
     this.renderProposalBar();
+    this.chatPanel?.renderMessages();
+    this.chatPanel?.renderStatusLine();
     if (!isAuto) {
       this.hideRestoreBanner();
       this.toast('Restored last edit');

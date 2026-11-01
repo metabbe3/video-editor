@@ -44,6 +44,8 @@ export class Project {
     this.proposalsApplied = false;
     this.debateSummary = null;  // council debate results
     this.chatHistory = [];      // inline AI chat messages and operations
+    this.chatLog = [];          // ChatDirector sidebar chat history
+    this.stance = 'balanced';   // current council/director stance
     this.glmResult = null;      // last applyGlm result
     this.variants = null;       // GLM 1->many clips
     this.activeVariant = 0;
@@ -157,11 +159,14 @@ export class Project {
   computeProposals() {
     if (!this.words || !this.analysis) return [];
     const plat = PLATFORMS[this.settings.platform] ?? PLATFORMS.shorts;
-    const sil = detectSilence(this.analysis.energy, this.analysis.hopSec, calibrateThreshold(this.analysis.energy));
+    const hasEnergy = Boolean(this.analysis.energy && this.analysis.energy.length);
+    const sil = hasEnergy
+      ? detectSilence(this.analysis.energy, this.analysis.hopSec, calibrateThreshold(this.analysis.energy))
+      : [];
     this.proposals = generateProposals(this.words, this.analysis.duration, {
       silence: sil,
-      energy: this.analysis.energy,
-      hopSec: this.analysis.hopSec,
+      energy: hasEnergy ? this.analysis.energy : null,
+      hopSec: this.analysis.hopSec || 0.02,
       tuning: { ...TUNING, ...plat.pacing },
     });
     this.proposalsApplied = false;
@@ -180,9 +185,11 @@ export class Project {
   /** baseline heuristic cut after transcription (pacing from the platform preset) */
   computeBaseKeeps() {
     const plat = PLATFORMS[this.settings.platform] ?? PLATFORMS.shorts;
+    const hasEnergy = Boolean(this.analysis.energy && this.analysis.energy.length);
     this.baseKeeps = heuristicKeeps(this.words, this.analysis.duration, {
-      silence: detectSilence(this.analysis.energy, this.analysis.hopSec, calibrateThreshold(this.analysis.energy)),
-      energy: this.analysis.energy, hopSec: this.analysis.hopSec,
+      silence: hasEnergy ? detectSilence(this.analysis.energy, this.analysis.hopSec, calibrateThreshold(this.analysis.energy)) : [],
+      energy: hasEnergy ? this.analysis.energy : null,
+      hopSec: this.analysis.hopSec || 0.02,
       tuning: { ...TUNING, ...plat.pacing },
     });
     this.proposalsApplied = true;
@@ -225,5 +232,7 @@ export class Project {
     this.overrides = { cuts: [], keeps: [] };
     this.overlays = [];
     this.chatHistory = [];
+    this.chatLog = [];
+    this.stance = 'balanced';
   }
 }

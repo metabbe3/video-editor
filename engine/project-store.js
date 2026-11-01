@@ -113,6 +113,8 @@ export function serializeProjectState(p) {
     proposals: p.proposals ? JSON.parse(JSON.stringify(p.proposals)) : null,
     debateSummary: p.debateSummary ? JSON.parse(JSON.stringify(p.debateSummary)) : null,
     chatHistory: p.chatHistory ? JSON.parse(JSON.stringify(p.chatHistory)) : [],
+    chatLog: p.chatLog ? JSON.parse(JSON.stringify(p.chatLog)) : (p.chatHistory ? JSON.parse(JSON.stringify(p.chatHistory)) : []),
+    stance: p.stance || 'balanced',
   };
 }
 
@@ -131,6 +133,13 @@ export function applyProjectSnapshot(p, snap) {
   if (snap.proposals) p.proposals = snap.proposals;
   if (snap.debateSummary) p.debateSummary = snap.debateSummary;
   if (snap.chatHistory) p.chatHistory = snap.chatHistory;
+  if (snap.chatLog) {
+    p.chatLog = snap.chatLog;
+    if (!p.chatHistory?.length) p.chatHistory = snap.chatLog;
+  } else if (snap.chatHistory) {
+    p.chatLog = snap.chatHistory;
+  }
+  if (snap.stance) p.stance = snap.stance;
   if (snap.edl) {
     p.edl = snap.edl;
     if (snap.audioOverlays?.length) p.edl.audioOverlays = snap.audioOverlays;

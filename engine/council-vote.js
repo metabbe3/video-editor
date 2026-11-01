@@ -14,22 +14,46 @@ const DRAMATIC_WORDS = /^(tapi|namun|karena|rahasianya|masalahnya|sudah|penting|
  * 3. AudioEngineer: acoustic energy, cuts only when RMS energy drops to true silence.
  */
 export function voteProposalLocal(proposal, context = {}) {
-  const { words = [], energy = null, hopSec = 0.02, thresholdDb = -35 } = context;
+  const {
+    words = [], energy = null, hopSec = 0.02, thresholdDb = -35,
+    stance = 'balanced', userFeedback = '',
+  } = context;
   const dur = proposal.duration || (proposal.end - proposal.start);
   const votes = [];
 
+  // Personas given extra weight according to stance
+  // ruthless -> MomentumEditor x1.3, storyteller -> Storyteller x1.3, balanced flat
+  let wMomentum = stance === 'ruthless' ? 1.3 : (stance === 'storyteller' ? 0.8 : 1.0);
+  let wStory = stance === 'storyteller' ? 1.3 : (stance === 'ruthless' ? 0.8 : 1.0);
+  let wAudio = 1.0;
+
+  if (userFeedback) {
+    if (/rapat|tight|agresif|cepat|faster|cut/i.test(userFeedback)) {
+      wMomentum += 0.3;
+    }
+    if (/santai|calm|story|cerita|keep|pause/i.test(userFeedback)) {
+      wStory += 0.3;
+    }
+  }
+
+  const tightPacing = stance === 'ruthless' || /rapat|tight|agresif|cepat|faster/i.test(userFeedback);
+  const hookFocus = (proposal.start < 5.0) && /hook|intro|awal/i.test(userFeedback);
+  const minPauseCut = tightPacing ? 0.20 : 0.35;
+
   // 1. MomentumEditor
   if (proposal.kind === 'filler' || proposal.kind === 'phrase') {
-    votes.push({ persona: 'MomentumEditor', vote: 'cut', reason: 'Tighten rhythm, remove filler' });
-  } else if (dur >= 0.35) {
-    votes.push({ persona: 'MomentumEditor', vote: 'cut', reason: 'Speed up pacing, cut dead air' });
+    votes.push({ persona: 'MomentumEditor', vote: 'cut', reason: 'Tighten rhythm, remove filler', weight: wMomentum });
+  } else if (hookFocus) {
+    votes.push({ persona: 'MomentumEditor', vote: 'cut', reason: 'Tighten hook opening (user feedback)', weight: wMomentum });
+  } else if (dur >= minPauseCut) {
+    votes.push({ persona: 'MomentumEditor', vote: 'cut', reason: tightPacing ? 'Ruthless tempo: cut dead air' : 'Speed up pacing, cut dead air', weight: wMomentum });
   } else {
-    votes.push({ persona: 'MomentumEditor', vote: 'keep', reason: 'Natural rhythm beat' });
+    votes.push({ persona: 'MomentumEditor', vote: 'keep', reason: 'Natural rhythm beat', weight: wMomentum });
   }
 
   // 2. Storyteller
   if (proposal.kind === 'filler') {
-    votes.push({ persona: 'Storyteller', vote: 'cut', reason: 'Distracting filler' });
+    votes.push({ persona: 'Storyteller', vote: 'cut', reason: 'Distracting filler', weight: wStory });
   } else {
     // Look ahead to the word following this pause
     const nextWord = words.find((w) => w.start >= proposal.end - 0.05);
@@ -37,17 +61,19 @@ export function voteProposalLocal(proposal, context = {}) {
     const isDramaticWord = nextWord && DRAMATIC_WORDS.test(nextWord.w.replace(/[.,!?;:]+$/, ''));
     const isPunctuationPause = prevWord && /[?!]$/.test(prevWord.w);
     const isCapitalizedOnset = nextWord && /^[A-Z][a-z]/.test(nextWord.w);
+    const maxStoryPause = (stance === 'storyteller' || /santai|calm|story/i.test(userFeedback)) ? 1.8 : 1.2;
 
-    if (dur <= 1.2 && (isDramaticWord || isPunctuationPause || isCapitalizedOnset)) {
+    if (dur <= maxStoryPause && (isDramaticWord || isPunctuationPause || isCapitalizedOnset)) {
       votes.push({
         persona: 'Storyteller',
         vote: 'keep',
         reason: isDramaticWord ? `jeda dramatis sebelum "${nextWord.w}"` : 'jeda dramatis untuk penekanan',
+        weight: wStory,
       });
-    } else if (dur > 1.2) {
-      votes.push({ persona: 'Storyteller', vote: 'cut', reason: 'Dead air loses audience' });
+    } else if (dur > maxStoryPause) {
+      votes.push({ persona: 'Storyteller', vote: 'cut', reason: 'Dead air loses audience', weight: wStory });
     } else {
-      votes.push({ persona: 'Storyteller', vote: 'cut', reason: 'Routine pause' });
+      votes.push({ persona: 'Storyteller', vote: 'cut', reason: 'Routine pause', weight: wStory });
     }
   }
 
@@ -64,29 +90,30 @@ export function voteProposalLocal(proposal, context = {}) {
       sumVal += v;
       count++;
     }
-    const avgVal = count > 0 ? sumVal / count : 0;
     const threshLin = dbToLin(thresholdDb);
 
     // If audio is truly silent / room tone in the valley -> clean cut
     if (minVal <= threshLin * 1.35) {
-      votes.push({ persona: 'AudioEngineer', vote: 'cut', reason: `True silence (< ${thresholdDb.toFixed(0)}dB)` });
+      votes.push({ persona: 'AudioEngineer', vote: 'cut', reason: `True silence (< ${thresholdDb.toFixed(0)}dB)`, weight: wAudio });
     } else {
       // Audio still has background noise, breath, or room rumble
-      votes.push({ persona: 'AudioEngineer', vote: 'keep', reason: 'Ambient energy present, prevent gate pump' });
+      votes.push({ persona: 'AudioEngineer', vote: 'keep', reason: 'Ambient energy present, prevent gate pump', weight: wAudio });
     }
   } else {
     // Energy curve not available -> duration heuristic
     if (dur >= 0.6) {
-      votes.push({ persona: 'AudioEngineer', vote: 'cut', reason: 'Significant gap (> 0.6s)' });
+      votes.push({ persona: 'AudioEngineer', vote: 'cut', reason: 'Significant gap (> 0.6s)', weight: wAudio });
     } else {
-      votes.push({ persona: 'AudioEngineer', vote: 'keep', reason: 'Natural breath / room tone' });
+      votes.push({ persona: 'AudioEngineer', vote: 'keep', reason: 'Natural breath / room tone', weight: wAudio });
     }
   }
 
-  // Tally votes
+  // Tally votes with weights
   const cutVotes = votes.filter((v) => v.vote === 'cut');
   const keepVotes = votes.filter((v) => v.vote === 'keep');
-  const decision = cutVotes.length >= 2 ? 'cut' : 'keep';
+  const cutScore = cutVotes.reduce((sum, v) => sum + (v.weight ?? 1), 0);
+  const keepScore = keepVotes.reduce((sum, v) => sum + (v.weight ?? 1), 0);
+  const decision = cutScore >= keepScore ? 'cut' : 'keep';
   const dissenting = votes.find((v) => v.vote !== decision);
 
   let summaryReason = '';
@@ -107,6 +134,73 @@ export function voteProposalLocal(proposal, context = {}) {
     consensus: `${Math.max(cutVotes.length, keepVotes.length)}-${Math.min(cutVotes.length, keepVotes.length)}`,
     dissent: dissenting ? dissenting.persona : null,
     summaryReason,
+  };
+}
+
+/**
+ * Execute a single iterative round of debate council.
+ * Injects userFeedback as context and applies stance weights.
+ * Always produces an array of actionable options (never auto-commits).
+ */
+export function runCouncilRound(proposals, context = {}) {
+  const {
+    stance = 'balanced', userFeedback = '', energy = null,
+    words = [], hopSec = 0.02, thresholdDb = -35,
+  } = context;
+
+  const roundProposals = (proposals || []).map((p) => ({ ...p }));
+  let cutCount = 0;
+  let keepCount = 0;
+  let fillersAuto = 0;
+  let changedCount = 0;
+
+  for (const p of roundProposals) {
+    if (p.kind === 'filler' && p.status === 'accepted' && !userFeedback) {
+      fillersAuto++;
+      cutCount++;
+      continue;
+    }
+
+    const prevStatus = p.status;
+    const verdict = voteProposalLocal(p, {
+      words, energy, hopSec, thresholdDb, stance, userFeedback,
+    });
+    p.debateVerdict = verdict;
+    p.status = verdict.accepted ? 'accepted' : 'rejected';
+
+    if (verdict.accepted) {
+      cutCount++;
+      p.acceptedReason = verdict.summaryReason;
+    } else {
+      keepCount++;
+      p.keptReason = verdict.summaryReason;
+    }
+
+    if (prevStatus && prevStatus !== p.status) {
+      changedCount++;
+    }
+  }
+
+  const feedbackNote = userFeedback ? ` · steered: "${userFeedback}"` : '';
+  const text = `Council (${stance}): cut ${cutCount} · keep ${keepCount}${feedbackNote}`;
+
+  return {
+    proposals: roundProposals,
+    stance,
+    userFeedback,
+    summary: {
+      cutCount,
+      keepCount,
+      fillersAuto,
+      changedCount,
+      text,
+    },
+    options: [
+      { id: 'apply_council', label: `Apply Council (${cutCount} cuts, ${keepCount} kept)`, action: 'apply_council' },
+      { id: 'stance_ruthless', label: 'Make more ruthless (cut more)', action: 'stance_ruthless' },
+      { id: 'stance_storyteller', label: 'Keep more pauses (storyteller)', action: 'stance_storyteller' },
+      { id: 'dismiss_council', label: 'Keep as is (dismiss)', action: 'dismiss_council' },
+    ],
   };
 }
 
