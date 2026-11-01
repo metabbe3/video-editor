@@ -25,9 +25,9 @@ export function renderStoryScript(container, app) {
     const card = document.createElement('div');
     card.draggable = true;
     card.dataset.idx = i;
-    card.style.cssText = 'border:1px solid var(--border-soft);border-radius:10px;padding:8px 10px;margin-bottom:8px;background:var(--bg);cursor:grab';
+    card.style.cssText = 'border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--bg-raise);cursor:grab';
     const head = document.createElement('div');
-    head.style.cssText = 'display:flex;gap:8px;align-items:baseline;font-size:11px;color:var(--ink-2);margin-bottom:4px';
+    head.style.cssText = 'display:flex;gap:8px;align-items:baseline;font-size:var(--fs-small);color:var(--ink-2);margin-bottom:4px';
     const badge = document.createElement('span');
     badge.textContent = roleBadge(k.why, i, p.edl.keep.length - 1);
     badge.style.cssText = 'color:var(--accent);font-weight:600';
@@ -40,18 +40,18 @@ export function renderStoryScript(container, app) {
     if (k.score) { score.textContent = `· ${k.score}`; score.style.color = 'var(--accent)'; }
     head.append(badge, time, src, score);
     const body = document.createElement('div');
-    body.style.cssText = 'font-size:13.5px;line-height:1.6';
+    body.style.cssText = 'font-size:var(--fs-hero);line-height:1.7;color:var(--ink)';
     body.textContent = words.map((w) => w.w).join(' ');
     card.append(head, body);
 
     card.ondragstart = (e) => e.dataTransfer.setData('text/plain', String(i));
     card.oncontextmenu = (e) => { e.preventDefault(); app.storyMenu(e, i); };
-    if (k.locked) { card.style.borderColor = 'var(--kraft, #d4a373)'; badge.textContent = '🔒 ' + badge.textContent; }
-    card.ondragover = (e) => { e.preventDefault(); card.style.borderColor = 'var(--accent)'; };
-    card.ondragleave = () => { card.style.borderColor = 'var(--border-soft)'; };
+    if (k.locked) { card.style.boxShadow = '0 0 0 1px var(--accent)'; badge.textContent = '🔒 ' + badge.textContent; }
+    card.ondragover = (e) => { e.preventDefault(); card.style.boxShadow = '0 0 0 2px var(--accent)'; };
+    card.ondragleave = () => { card.style.boxShadow = ''; };
     card.ondrop = (e) => {
       e.preventDefault();
-      card.style.borderColor = '';
+      card.style.boxShadow = '';
       const from = Number(e.dataTransfer.getData('text/plain'));
       if (from === i || Number.isNaN(from)) return;
       app.pushUndo();
@@ -71,7 +71,7 @@ export function renderStoryScript(container, app) {
   const totalCut = removed.reduce((a, r) => a + (r.end - r.start), 0);
   if (totalCut > 1) {
     const pill = document.createElement('div');
-    pill.style.cssText = 'font-size:11.5px;color:var(--ink-2);padding:4px 6px;border:1px dashed var(--border-soft);border-radius:8px;cursor:pointer';
+    pill.style.cssText = 'font-size:var(--fs-small);color:var(--ink-2);padding:6px 10px;border-radius:8px;background:var(--bg-raise);cursor:pointer';
     pill.textContent = `✂️ ${Math.round(totalCut)}s cut · ${removed.length} regions — switch to Raw Map to rescue`;
     pill.onclick = () => app.switchScriptTab('raw');
     container.appendChild(pill);

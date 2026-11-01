@@ -4,6 +4,15 @@
 
 const $ = (id) => document.getElementById(id);
 
+function limitEmojis(str, max = 1) {
+  if (!str) return str;
+  let count = 0;
+  return str.replace(/\p{Extended_Pictographic}/gu, (match) => {
+    count++;
+    return count <= max ? match : '';
+  });
+}
+
 export class ChatPanel {
   constructor(app, director, project) {
     this.app = app;
@@ -131,11 +140,11 @@ export class ChatPanel {
     wrap.className = `chat-msg ${msg.role || 'assistant'}`;
     wrap.dataset.id = msg.id || '';
 
-    // Text content
+    // Text content (enforce max 1 emoji per message)
     if (msg.text) {
       const textDiv = document.createElement('div');
       textDiv.className = 'chat-msg-text';
-      textDiv.textContent = msg.text;
+      textDiv.textContent = limitEmojis(msg.text, 1);
       wrap.appendChild(textDiv);
     }
 

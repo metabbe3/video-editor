@@ -5,15 +5,16 @@
 
 import { timelineOf, captionsOf } from '../core/Compositor.js';
 
-const GUTTER = 26;
 const ROWS = { ruler: 22, t: 16, b1: 16, b2: 16, v: 40, w: 20, a1: 24, a2: 16, a3: 16 };
 
 export function createTimelineView(canvas, host) {
   const ctx = canvas.getContext('2d');
   const T = { pxPerSec: 0, scroll: 0, drag: null, hoverEdge: null };
+  let showLabels = false;
 
   const css = () => getComputedStyle(document.documentElement);
   const col = (name) => css().getPropertyValue(name).trim();
+  const gutter = () => showLabels ? 26 : 8;
 
   function duration() { const e = host.getEdl(); return e ? timelineOf(e).duration : 0; }
 
@@ -28,13 +29,13 @@ export function createTimelineView(canvas, host) {
 
   function fit() {
     const { W } = layout();
-    const avail = W - GUTTER - 8;
+    const avail = W - gutter() - 8;
     T.pxPerSec = Math.max(2, avail / Math.max(0.5, duration()));
     T.scroll = 0;
   }
 
-  const xOf = (t, W) => GUTTER + t * T.pxPerSec - T.scroll;
-  const tOf = (x) => (x - GUTTER + T.scroll) / T.pxPerSec;
+  const xOf = (t, W) => gutter() + t * T.pxPerSec - T.scroll;
+  const tOf = (x) => (x - gutter() + T.scroll) / T.pxPerSec;
   const snapT = (t) => {
     if (!host.getSnap || !host.getSnap()) return t;
     const pts = (host.snapPoints ? host.snapPoints() : []).slice().sort((a, b) => Math.abs(a - t) - Math.abs(b - t));
@@ -52,7 +53,7 @@ export function createTimelineView(canvas, host) {
       border = col('--border-soft'), raise = col('--bg-raise');
     if (!edl) {
       ctx.fillStyle = ink2; ctx.font = '12px ' + col('--sans')?.replace?.(/,.*/, '') || '12px sans-serif';
-      ctx.fillText('Timeline appears after Analyze', GUTTER + 8, 24);
+      ctx.fillText('Timeline appears after Analyze', gutter() + 8, 24);
       ctx.restore();
       return;
     }
@@ -74,32 +75,32 @@ export function createTimelineView(canvas, host) {
     }
 
     // ---- ruler ----
-    ctx.font = '10px ui-monospace, Menlo, monospace';
+    ctx.font = '11.5px ' + (col('--mono') || 'ui-monospace, Menlo, monospace');
     ctx.textAlign = 'center';
     const steps = [0.1, 0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120];
     const step = steps.find((s) => s * T.pxPerSec >= 64) ?? 300;
     for (let t = 0; t <= tl.duration + 1e-6; t += step) {
       const x = xOf(t, W);
-      if (x < GUTTER - 1 || x > W) continue;
+      if (x < gutter() - 1 || x > W) continue;
       ctx.strokeStyle = border;
       ctx.beginPath(); ctx.moveTo(x, rows.ruler.y + 14); ctx.lineTo(x, rows.ruler.y + 22); ctx.stroke();
       ctx.fillStyle = ink2;
       ctx.fillText(fmt(t), x, rows.ruler.y + 11);
     }
 
-    // Ghost markers for proposed cuts (preview-only, hatched red strip on duration ruler)
+    // Ghost markers for proposed cuts (preview-only, hatched accent strip on duration ruler)
     const proposals = host.getProposals?.() || [];
     if (proposals.length) {
       for (const p of proposals) {
         if (p.status === 'rejected') continue;
         const px0 = xOf(tl.sourceToEdited(p.start) ?? p.start);
         const px1 = xOf(tl.sourceToEdited(p.end) ?? p.end);
-        if (px1 < GUTTER || px0 > W) continue;
+        if (px1 < gutter() || px0 > W) continue;
         const markW = Math.max(3, px1 - px0);
         const ry = rows.ruler.y + rows.ruler.h - 5;
-        ctx.fillStyle = 'rgba(235, 60, 60, 0.45)';
+        ctx.fillStyle = 'rgba(31, 111, 235, 0.15)';
         ctx.fillRect(px0, ry, markW, 4);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.strokeStyle = clay;
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let hx = px0; hx <= px0 + markW; hx += 4) {
@@ -117,23 +118,20 @@ export function createTimelineView(canvas, host) {
       const s = tl.segments[i];
       const x0 = xOf(tl.starts[i]), x1 = xOf(tl.starts[i] + s.dur);
       const y = vRow.y + 5, h = vRow.h - 10;
-      ctx.fillStyle = i === tl.segmentAt(playT) ? clay : 'rgba(31,111,235,0.55)';
-      roundRect(ctx, x0, y, Math.max(2, x1 - x0), h, 5); ctx.fill();
+      const isSelected = host.getSelected?.() === i;
+      ctx.fillStyle = isSelected ? clay : raise;
+      ctx.strokeStyle = isSelected ? clay : border;
+      roundRect(ctx, x0, y, Math.max(2, x1 - x0), h, 5); ctx.fill(); ctx.stroke();
       if (s.freeze > 0) { // freeze tail: frosted strip at the clip's end
         const playW = ((s.out - s.in) / s.rate / s.dur) * (x1 - x0);
-        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.fillStyle = isSelected ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.06)';
         ctx.fillRect(Math.max(x0, x1 - (x1 - x0 - playW)), y, Math.max(0, x1 - x0 - playW), h);
       }
-      if (host.getSelected?.() === i) { // selection outline — distinct from playhead fill
-        ctx.strokeStyle = ink; ctx.lineWidth = 2;
-        roundRect(ctx, x0 + 1, y + 1, Math.max(2, x1 - x0) - 2, h - 2, 4); ctx.stroke();
-        ctx.lineWidth = 1;
-      }
       if (x1 - x0 > 64) {
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
-        ctx.font = '9.5px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
+        ctx.fillStyle = isSelected ? '#ffffff' : ink;
+        ctx.font = '10.5px ' + (col('--mono') || 'ui-monospace, Menlo, monospace'); ctx.textAlign = 'center';
         const spd = s.rate !== 1 ? ` ${s.rate.toFixed(2).replace(/\.?0+$/, '')}×` : '';
-        ctx.fillText(`${fmt(s.in)}→${fmt(s.out)}${spd}${s.freeze > 0 ? ' ❄' : ''} src`, (x0 + x1) / 2, y + h / 2 + 3);
+        ctx.fillText(`${fmt(s.in)}→${fmt(s.out)}${spd}${s.freeze > 0 ? ' ❄' : ''} src`, (x0 + x1) / 2, y + h / 2 + 3.5);
       }
       // Keyframe diamond markers on the clip
       const clipKfs = edl.keep[i]?.keyframes;
@@ -144,7 +142,7 @@ export function createTimelineView(canvas, host) {
             const kf = track[ki];
             const kfT = tl.starts[i] + kf.t * s.dur;
             const kfX = xOf(kfT);
-            ctx.fillStyle = '#f59e0b'; // Amber diamond
+            ctx.fillStyle = clay; // Accent diamond
             ctx.strokeStyle = '#fff';
             ctx.lineWidth = 1;
             drawDiamond(ctx, kfX, y + h / 2, 4.5);
@@ -227,10 +225,10 @@ export function createTimelineView(canvas, host) {
     // A3 BGM bar + auto-ducking gain curve overlay
     if (rows.a3.h) {
       ctx.fillStyle = 'rgba(212,163,115,0.4)';
-      roundRect(ctx, GUTTER, rows.a3.y + 2, Math.max(10, xOf(tl.duration) - GUTTER), rows.a3.h - 4, 3); ctx.fill();
+      roundRect(ctx, gutter(), rows.a3.y + 2, Math.max(10, xOf(tl.duration) - gutter()), rows.a3.h - 4, 3); ctx.fill();
       ctx.fillStyle = '#29261b'; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
       const bgmName = String(edl.bgm?.src || '').split('/').pop() || 'Music';
-      ctx.fillText(`🎵 ${bgmName} · ${tl.duration.toFixed(0)}s`, GUTTER + 4, rows.a3.y + rows.a3.h - 4);
+      ctx.fillText(`🎵 ${bgmName} · ${tl.duration.toFixed(0)}s`, gutter() + 4, rows.a3.y + rows.a3.h - 4);
 
       // Thin visual gain curve overlay for auto-duck
       const duck = host.getDuckCurve ? host.getDuckCurve() : null;
@@ -242,7 +240,7 @@ export function createTimelineView(canvas, host) {
         for (let pi = 0; pi < duck.points.length; pi++) {
           const pt = duck.points[pi];
           const px = xOf(pt.t);
-          if (px < GUTTER || px > W) continue;
+          if (px < gutter() || px > W) continue;
           const normG = Math.max(0, Math.min(1, pt.gain));
           const py = rows.a3.y + rows.a3.h - 3 - normG * (rows.a3.h - 6);
           if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
@@ -252,12 +250,19 @@ export function createTimelineView(canvas, host) {
       }
     }
 
-    // punch markers
-    ctx.fillStyle = clay;
+    // punch markers — accent ring
+    ctx.strokeStyle = clay;
+    ctx.fillStyle = raise;
+    ctx.lineWidth = 1.5;
     for (const p of edl.punches || []) {
       const x = xOf(p.at);
-      tri(ctx, x, vRow.y + 2, 5);
+      ctx.beginPath();
+      ctx.arc(x, vRow.y + 4, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
     }
+    ctx.lineWidth = 1;
+
     // B-roll slots (outlined, own half-row)
     for (const b of edl.broll || []) {
       const x0 = xOf(b.at), x1 = xOf(b.at + b.dur);
@@ -295,9 +300,9 @@ export function createTimelineView(canvas, host) {
         const x0 = xOf(tl.starts[i]), x1 = xOf(tl.starts[i] + s.dur);
         const playFrac = ((s.out - s.in) / s.rate) / s.dur; // freeze tail has no waveform
         const mid = rows.a1.y + rows.a1.h / 2;
-        ctx.fillStyle = 'rgba(115,113,99,0.55)';
+        ctx.fillStyle = ink2;
         const wx1 = x0 + (x1 - x0) * playFrac;
-        for (let x = Math.max(GUTTER, Math.ceil(x0)); x < Math.min(W, wx1); x++) {
+        for (let x = Math.max(gutter(), Math.ceil(x0)); x < Math.min(W, wx1); x++) {
           const src = s.in + ((x - x0) / (wx1 - x0)) * (s.out - s.in);
           const v = energy[Math.min(energy.length - 1, Math.floor(src / hopSec))] || 0;
           const h = Math.max(0.6, Math.min(1, v * 3.2) * (aRow.h / 2 - 2)); // gain: speech ~0.1-0.3 rms
@@ -327,7 +332,7 @@ export function createTimelineView(canvas, host) {
     ctx.font = '9px system-ui';
     for (const e of edl.sfx || []) {
       const x = xOf(e.at);
-      if (x < GUTTER || x > W) continue;
+      if (x < gutter() || x > W) continue;
       ctx.fillStyle = '#D97757';
       ctx.beginPath();
       ctx.arc(x, (rows.a2.h ? rows.a2.y : rows.a1.y + rows.a1.h) + 8, 3, 0, Math.PI * 2);
@@ -339,16 +344,18 @@ export function createTimelineView(canvas, host) {
     // ---- playhead ----
     if (playT >= 0) {
       const x = xOf(playT);
-      ctx.strokeStyle = ink; ctx.lineWidth = 1.5;
+      ctx.strokeStyle = clay; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-      ctx.fillStyle = ink;
+      ctx.fillStyle = clay;
       tri(ctx, x, 0, 5, true);
     }
 
-    // gutter labels (only lanes with height)
-    ctx.fillStyle = ink2; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
-    const labels = { t: 'T', b1: 'B1', b2: 'B2', v: 'V', w: 'W', a1: 'A1', a2: 'A2', a3: 'A3' };
-    for (const k of Object.keys(labels)) if (rows[k] && rows[k].h) ctx.fillText(labels[k], GUTTER / 2, rows[k].y + rows[k].h / 2 + 3);
+    // gutter labels (only lanes with height, and only if showLabels is true)
+    if (showLabels) {
+      ctx.fillStyle = ink2; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+      const labels = { t: 'T', b1: 'B1', b2: 'B2', v: 'V', w: 'W', a1: 'A1', a2: 'A2', a3: 'A3' };
+      for (const k of Object.keys(labels)) if (rows[k] && rows[k].h) ctx.fillText(labels[k], gutter() / 2, rows[k].y + rows[k].h / 2 + 3);
+    }
     ctx.restore();
   }
 
@@ -586,7 +593,7 @@ export function createTimelineView(canvas, host) {
       const x = pt(e).x;
       const at = tOf(x);
       T.pxPerSec = Math.min(400, Math.max(2, T.pxPerSec * (e.deltaY < 0 ? 1.18 : 1 / 1.18)));
-      T.scroll = Math.max(0, at * T.pxPerSec - (x - GUTTER));
+      T.scroll = Math.max(0, at * T.pxPerSec - (x - gutter()));
     } else {
       T.scroll = Math.max(0, T.scroll + e.deltaY + e.deltaX);
     }
@@ -612,6 +619,13 @@ export function createTimelineView(canvas, host) {
     draw, fit,
     get pxPerSec() { return T.pxPerSec; },
     zoom(f) { T.pxPerSec = Math.min(400, Math.max(2, T.pxPerSec * f)); draw(-2); host.redraw(); },
+    get showLabels() { return showLabels; },
+    toggleLabels() {
+      showLabels = !showLabels;
+      fit();
+      draw();
+      return showLabels;
+    },
   };
 }
 

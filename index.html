@@ -7,9 +7,33 @@
     <style>/* Nila brandmark: minimal frame-corner cut (SVG inline, no CDN) */</style>
 <style>
   :root {
-    --bg: #faf9f5; --bg-raise: #f4f2ea; --ink: #29261b; --ink-2: #737163;
-    --border: rgba(112, 107, 87, 0.25); --border-soft: rgba(112, 107, 87, 0.14);
-    --accent: #1f6feb; --accent-ink: #1557c9; --ok: #788c5d; --danger: #b03a2e;
+    --bg: #faf9f5;
+    --bg-raise: #efecdf;       /* kontras naik dari #f4f2ea */
+    --bg-sunken: #f5f3ec;      /* timeline / wells */
+    --ink: #29261b;
+    --ink-2: #737163;
+    --border: rgba(112, 107, 87, 0.22);
+    --border-soft: rgba(112, 107, 87, 0.12);
+    --accent: #1f6feb;         /* SATU warna aksi: selected, primary btn, playhead, link, word-selected */
+    --accent-ink: #1557c9;
+    --accent-soft: rgba(31, 111, 235, 0.08);
+    --danger: #b03a2e;         /* hanya: cut FINAL solid strike, delete, destructive */
+    --ok: #788c5d;             /* hanya toast sukses */
+
+    /* 1. Type scale */
+    --fs-ui: 13px;             /* body, kontrol, tombol */
+    --fs-small: 11.5px;        /* label meta, secondary */
+    --fs-mono: 12px;           /* timecode, angka */
+    --fs-hero: 14px;           /* transcript words — teks terbesar di app */
+    --fs-head: 14px;           /* section header (semibold, letter-spacing 0.02em) */
+
+    /* 4. Spacing scale */
+    --sp1: 4px;
+    --sp2: 8px;
+    --sp3: 12px;
+    --sp4: 16px;
+    --sp5: 24px;
+
     --serif: ui-serif, Georgia, "Times New Roman", serif;
     --sans: -apple-system, "Segoe UI", system-ui, Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, monospace;
@@ -17,26 +41,40 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
   body {
-    background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px;
+    background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: var(--fs-ui);
     line-height: 1.45; -webkit-font-smoothing: antialiased;
     display: flex; flex-direction: column; overflow: hidden;
   }
+  button, input, select, textarea {
+    font: inherit;
+    transition: background 120ms ease-out, color 120ms ease-out, transform 120ms ease-out;
+  }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: 2px solid rgba(31, 111, 235, 0.40);
+    outline-offset: 1px;
+  }
+
+  /* ---------- scrollbar ---------- */
+  * { scrollbar-width: thin; scrollbar-color: var(--border-soft) transparent; }
+  *::-webkit-scrollbar { width: 6px; height: 6px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--border-soft); border-radius: 3px; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--border); }
 
   /* ---------- top bar ---------- */
   header {
-    display: flex; align-items: center; gap: 12px; padding: 9px 16px;
-    border-bottom: 1px solid var(--border-soft); flex: none;
+    display: flex; align-items: center; gap: var(--sp3); padding: 8px var(--sp4);
+    border-bottom: 1px solid var(--border-soft); flex: none; background: var(--bg);
   }
-  header h1 { font-family: var(--serif); font-weight: 600; font-size: 17px; margin: 0; letter-spacing: -0.01em; }
-  #status { color: var(--ink-2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  header h1 { font-family: var(--serif); font-weight: 600; font-size: 16px; margin: 0; letter-spacing: -0.01em; }
+  #status { color: var(--ink-2); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
   header .spacer { flex: 1; }
   .tbtn {
-    font: inherit; font-size: 13px; color: var(--ink); background: transparent;
-    border: 1px solid transparent; border-radius: 8px; padding: 5px 11px; cursor: pointer; width: auto;
-    transition: background 140ms, border-color 140ms, transform 180ms cubic-bezier(0.16,1,0.3,1);
+    font-size: var(--fs-ui); color: var(--ink); background: transparent;
+    border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; width: auto;
   }
-  .tbtn:hover { background: var(--bg-raise); border-color: var(--border-soft); }
-  .tbtn:active { transform: scale(0.97); }
+  .tbtn:hover { background: var(--bg-raise); }
+  .tbtn:active { transform: scale(0.98); }
   .tbtn.primary { background: var(--accent); color: #fff; font-weight: 600; }
   .tbtn.primary:hover { background: var(--accent-ink); }
   .tbtn:disabled { opacity: 0.4; cursor: default; }
@@ -44,225 +82,267 @@
   /* ---------- shell: rail + panels | stage | inspector — OpenCut layout ---------- */
   main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
   #shellTop { flex: 1; display: flex; min-height: 0; }
-  #railWrap { display: flex; min-width: 0; width: 272px; flex: none; border-right: 1px solid var(--border-soft); }
+  #railWrap { display: flex; min-width: 0; width: 256px; flex: none; background: var(--bg-raise); }
   #rail {
-    width: 44px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 8px 4px;
-    border-right: 1px solid var(--border-soft); overflow-y: auto; scrollbar-width: none;
+    width: 36px; flex: none; display: flex; flex-direction: column; gap: var(--sp1); padding: var(--sp2) 2px;
+    overflow-y: auto; scrollbar-width: none; background: var(--bg-raise);
   }
   #rail::-webkit-scrollbar { display: none; }
   #rail button {
-    width: 36px; height: 36px; font-size: 16px; line-height: 1; padding: 0;
-    background: transparent; border: none; border-radius: 9px; cursor: pointer; color: var(--ink-2);
+    width: 32px; height: 32px; font-size: 15px; line-height: 1; padding: 0;
+    background: transparent; border: none; border-radius: 7px; cursor: pointer; color: var(--ink-2);
   }
-  #rail button:hover { background: var(--bg-raise); }
+  #rail button:hover { background: var(--bg); }
   #rail button.on { background: var(--accent); color: #fff; }
-  #panelView { flex: 1; min-width: 0; overflow-y: auto; padding: 10px; }
-  .panel { display: flex; flex-direction: column; gap: 10px; }
+  #panelView { flex: 1; min-width: 0; overflow-y: auto; padding: 14px; background: var(--bg-raise); }
+  .panel { display: flex; flex-direction: column; gap: var(--sp4); }
   .panel[hidden] { display: none; }
   .panel > h3 {
-    margin: 4px 0 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
-    color: var(--ink-2); font-weight: 600;
+    margin: 12px 0 var(--sp2); font-size: var(--fs-head); font-weight: 600; letter-spacing: 0.02em;
+    color: var(--ink);
   }
-  .vsplit { width: 6px; flex: none; cursor: col-resize; }
+  .vsplit { width: 5px; flex: none; cursor: col-resize; }
   .vsplit:hover, .hsplit:hover { background: var(--border-soft); }
-  .hsplit { height: 6px; flex: none; cursor: row-resize; }
+  .hsplit { height: 5px; flex: none; cursor: row-resize; }
 
-  .step { border: 1px solid var(--border-soft); border-radius: 9px; padding: 9px 10px 10px; }
+  .step { background: var(--bg); border-radius: 8px; padding: var(--sp3); }
   .step h2 {
-    margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em;
+    margin: 0 0 var(--sp2); font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.08em;
     color: var(--ink-2); font-weight: 600; display: flex; gap: 6px; align-items: center;
   }
   .step h2 .n {
-    width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--border);
-    display: inline-flex; align-items: center; justify-content: center; font-size: 9px;
+    width: 14px; height: 14px; border-radius: 50%; background: var(--bg-raise);
+    display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600;
   }
-  .step[data-done] h2 .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .step[data-done] h2 .n { background: var(--accent); color: #fff; }
   .step button:not(.chip) {
-    font: inherit; font-size: 13px; color: var(--ink); background: var(--bg);
-    border: 1px solid var(--border); border-radius: 7px; padding: 5px 10px; cursor: pointer; width: 100%;
-    transition: background 140ms, transform 180ms cubic-bezier(0.16,1,0.3,1);
+    font-size: var(--fs-ui); color: var(--ink); background: var(--bg-raise);
+    border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; width: 100%;
   }
-  .step button:hover:not(:disabled) { background: var(--bg-raise); }
+  .step button:hover:not(:disabled) { background: #e3dfd0; }
   .step button:active:not(:disabled) { transform: scale(0.985); }
   .step button:disabled { opacity: 0.45; cursor: default; }
-  .step button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  .step button.primary { background: var(--accent); color: #fff; font-weight: 600; }
   .step button.primary:hover:not(:disabled) { background: var(--accent-ink); }
   select, input[type="password"], input[type="text"], textarea {
-    font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); width: 100%;
-    border: 1px solid var(--border); border-radius: 7px; padding: 4px 7px;
+    font-size: var(--fs-ui); color: var(--ink); background: var(--bg); width: 100%;
+    border: 1px solid var(--border-soft); border-radius: 6px; padding: 5px 8px;
   }
-  label { font-size: 11px; color: var(--ink-2); display: block; margin: 6px 0 2px; }
-  .filelist { max-height: 118px; overflow-y: auto; font-size: 11.5px; margin-top: 5px; }
+  select:focus, input[type="password"]:focus, input[type="text"]:focus, textarea:focus {
+    border-color: var(--accent);
+  }
+  label { font-size: var(--fs-small); color: var(--ink-2); display: block; margin: var(--sp2) 0 var(--sp1); }
+  .filelist { max-height: 118px; overflow-y: auto; font-size: var(--fs-small); margin-top: var(--sp1); }
   .filelist .f {
-    display: flex; gap: 6px; padding: 2px 3px; border-radius: 5px; color: var(--ink-2);
+    display: flex; gap: 6px; padding: 3px 6px; border-radius: 4px; color: var(--ink-2);
     align-items: baseline; white-space: nowrap; overflow: hidden;
   }
   .filelist .f span:last-child { overflow: hidden; text-overflow: ellipsis; }
-  .filelist .f .k { font-size: 9px; border: 1px solid var(--border-soft); border-radius: 3px; padding: 0 3px; flex: none; }
+  .filelist .f .k { font-size: 9px; border-radius: 3px; padding: 0 4px; flex: none; background: var(--bg-raise); }
   .filelist .f.aroll { color: var(--ink); background: var(--bg-raise); }
-  .progress { height: 3px; border-radius: 2px; background: var(--border-soft); overflow: hidden; margin-top: 8px; }
+  .progress { height: 3px; border-radius: 2px; background: var(--bg-raise); overflow: hidden; margin-top: var(--sp2); }
   .progress > div { height: 100%; width: 0%; background: var(--accent); transition: width 200ms cubic-bezier(0.16,1,0.3,1); }
   .chip {
-    display: inline-flex; align-items: center; font-size: 10.5px; color: var(--ink-2);
-    border: 1px solid var(--border-soft); border-radius: 999px; padding: 1px 8px; cursor: pointer;
-    margin-left: auto; background: transparent; font-weight: 400;
+    display: inline-flex; align-items: center; font-size: var(--fs-small); color: var(--ink-2);
+    border: none; border-radius: 999px; padding: 2px 8px; cursor: pointer;
+    margin-left: auto; background: var(--bg-raise); font-weight: 500;
   }
-  .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip.on { background: var(--accent); color: #fff; }
   .assetgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; }
   .assetgrid button {
-    font: inherit; font-size: 12px; color: var(--ink); background: var(--bg);
-    border: 1px solid var(--border-soft); border-radius: 8px; padding: 6px 4px; cursor: pointer;
+    font-size: var(--fs-ui); color: var(--ink); background: var(--bg);
+    border: none; border-radius: 6px; padding: 6px 8px; cursor: pointer;
   }
-  .assetgrid button:hover { background: var(--bg-raise); border-color: var(--border); }
-  .assetgrid button.big { font-size: 22px; padding: 8px 4px; }
+  .assetgrid button:hover { background: var(--bg-raise); }
+  .assetgrid button.big { font-size: 20px; padding: 6px 8px; }
 
   /* ---------- stage ---------- */
-  #stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 14px; min-width: 0; min-height: 0; flex: 1; }
-  #playerWrap { position: relative; flex: 1; min-height: 0; aspect-ratio: 9 / 16; max-width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid var(--border-soft); background: #101010; cursor: grab; }
+  #stage { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp2); padding: 14px; min-width: 0; min-height: 0; flex: 1; background: var(--bg); }
+  #playerWrap { position: relative; flex: 1; min-height: 0; aspect-ratio: 9 / 16; max-width: 100%; border-radius: 10px; overflow: hidden; background: #101010; cursor: grab; }
   #playerWrap:active { cursor: grabbing; }
   #player { width: 100%; height: 100%; display: block; }
   #playerWrap .empty {
     position: absolute; inset: 0; display: flex; flex-direction: column; gap: 5px;
     align-items: center; justify-content: center; color: var(--ink-2);
-    font-family: var(--serif); font-size: 14px; text-align: center; padding: 0 14%;
+    font-family: var(--serif); font-size: var(--fs-head); text-align: center; padding: 0 14%;
   }
-  #transport { display: flex; gap: 12px; align-items: center; color: var(--ink-2); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; flex-wrap: wrap; justify-content: center; }
-  #transport .tsep { width: 1px; height: 16px; background: var(--border-soft); }
+  #transport { display: flex; gap: var(--sp3); align-items: center; color: var(--ink-2); font-size: var(--fs-mono); font-variant-numeric: tabular-nums; flex: none; flex-wrap: wrap; justify-content: center; }
+  #transport .tsep { width: 1px; height: 14px; background: var(--border-soft); }
   #zoomRange { width: 90px; accent-color: var(--accent); }
 
   /* ---------- right column: inspector + transcript ---------- */
-  #rightCol { display: flex; flex-direction: column; min-width: 0; width: 300px; flex: none; border-left: 1px solid var(--border-soft); }
-  #inspector { flex: none; max-height: 46%; overflow-y: auto; border-bottom: 1px solid var(--border-soft); padding: 10px 12px; }
-  #inspector .ihead { font-size: 10px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-2); font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
-  #inspector .empty-hint { color: var(--ink-2); font-size: 12px; }
-  #inspector .irow { display: flex; align-items: center; gap: 6px; margin: 5px 0; font-size: 12px; }
-  #inspector .irow label { margin: 0; flex: 1; }
+  #rightCol { display: flex; flex-direction: column; min-width: 0; width: 300px; flex: none; background: var(--bg-raise); }
+  #inspector { flex: none; max-height: 46%; overflow-y: auto; padding: 10px 14px; background: var(--bg-raise); border-bottom: 1px solid var(--border-soft); }
+  #inspector .ihead { font-size: var(--fs-head); font-weight: 600; letter-spacing: 0.02em; color: var(--ink); margin-bottom: var(--sp2); display: flex; align-items: center; gap: 6px; }
+  #inspector .empty-hint { color: var(--ink-2); font-size: var(--fs-small); }
+  #inspector .irow { display: flex; align-items: center; gap: 6px; margin: 4px 0; font-size: var(--fs-ui); }
+  #inspector .irow label { margin: 0; flex: 1; font-size: var(--fs-small); }
   #inspector input[type="range"] { flex: 1.4; accent-color: var(--accent); }
-  #transcriptPane { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  #transcriptPane header {
-    border-bottom: 1px solid var(--border-soft); padding: 8px 12px; display: flex; gap: 8px; align-items: baseline;
+
+  /* Inspector Collapsible Sections */
+  .i-sec { padding: 4px 0; }
+  .i-sec-head {
+    font-size: var(--fs-small); font-weight: 600; color: var(--ink-2); cursor: pointer;
+    user-select: none; list-style: none; display: flex; align-items: center; gap: 4px; padding: 4px 0;
   }
-  #transcriptPane header b { font-size: 12px; font-weight: 600; }
-  #wordDetail { font-family: var(--mono); font-size: 10.5px; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #transcript { flex: 1; overflow-y: auto; padding: 10px 12px; font-size: 13.5px; line-height: 1.9; }
-  #transcript .w { cursor: pointer; border-radius: 4px; padding: 1px 2px; transition: background 120ms; }
+  .i-sec-head::-webkit-details-marker { display: none; }
+  .i-sec-head::before {
+    content: '▸'; font-size: var(--fs-small); transition: transform 120ms ease-out; display: inline-block;
+  }
+  .i-sec[open] > .i-sec-head::before { transform: rotate(90deg); }
+
+  #transcriptPane { flex: 1; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+  #transcriptPane header {
+    padding: var(--sp2) 12px; display: flex; gap: var(--sp2); align-items: baseline; border-bottom: 1px solid var(--border-soft);
+  }
+  #transcriptPane header b { font-size: var(--fs-ui); font-weight: 600; }
+  #wordDetail { font-family: var(--mono); font-size: var(--fs-small); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Proposal Bar — sticky top transcript, single row, text links */
+  #proposalBar {
+    position: sticky; top: 0; z-index: 5; background: var(--bg-raise);
+    padding: 6px 12px; border-bottom: 1px solid var(--border-soft);
+    font-size: var(--fs-small); display: flex; align-items: center; gap: 10px;
+  }
+  #proposalInfo { font-weight: 600; color: var(--ink); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .tlink {
+    font: inherit; font-size: var(--fs-small); background: none; border: none; padding: 0 2px;
+    cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+  }
+  .tlink.accent { color: var(--accent); font-weight: 600; }
+  .tlink.accent:hover { color: var(--accent-ink); }
+  .tlink.muted { color: var(--ink-2); }
+  .tlink.muted:hover { color: var(--ink); }
+
+  #transcript { flex: 1; overflow-y: auto; padding: 14px; font-size: var(--fs-hero); line-height: 1.7; background: var(--bg); }
+  #transcript .w {
+    cursor: pointer; border-radius: 3px; padding: 1px 2px; color: var(--ink);
+    transition: background 120ms ease-out, color 120ms ease-out;
+  }
   #transcript .w:hover { background: var(--bg-raise); }
-  #transcript .w.cut { color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--accent); text-decoration-thickness: 1.5px; opacity: 0.55; }
+  #transcript .w.cut {
+    color: var(--ink-2); text-decoration: line-through; text-decoration-color: var(--danger);
+    text-decoration-thickness: 1.5px; opacity: 0.55;
+  }
   #transcript .w.cur { background: var(--accent); color: #fff; }
-  #transcript .w.cur.cut { background: var(--ink-2); }
-  #transcript .w.filler { border-bottom: 1px dotted var(--accent); }
-  #transcript .w.proposed { text-decoration: line-through dotted; text-decoration-color: rgba(31, 111, 235, 0.65); text-decoration-thickness: 1.5px; color: var(--ink-2); opacity: 0.75; }
-  #transcript .w.proposed.accepted { text-decoration-color: var(--accent); opacity: 0.85; }
-  #transcript .w.proposed.pending { text-decoration-color: rgba(31, 111, 235, 0.45); opacity: 0.65; }
-  #transcript .w.kept-by-debate { text-decoration: none; border-bottom: 1px dotted rgba(31, 111, 235, 0.35); }
-  #transcript .w.chat-diff-highlight { background: rgba(255, 215, 0, 0.35); box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.6); border-radius: 3px; }
-  .context-menu .ctx-item { width: 100%; text-align: left; background: none; border: none; padding: 6px 12px; cursor: pointer; color: var(--ink); font-size: 12px; display: block; }
-  .context-menu .ctx-item:hover { background: var(--bg-raise); color: var(--accent); }
-  .pause-chip { font-family: var(--mono); font-size: 11px; padding: 1px 4px; border-radius: 3px; background: rgba(31, 111, 235, 0.08); color: var(--accent); margin: 0 2px; user-select: none; cursor: pointer; display: inline-block; }
+  #transcript .w.cur.cut { background: var(--ink-2); color: #fff; }
+  #transcript .w.filler { border-bottom: 1.5px dotted var(--accent); }
+  #transcript .w.proposed {
+    color: var(--ink-2); text-decoration: line-through dotted; text-decoration-color: var(--accent);
+    text-decoration-thickness: 1.5px; border-bottom: 1px dotted var(--accent); opacity: 0.8;
+  }
+  #transcript .w.proposed.accepted { text-decoration-color: var(--accent); opacity: 0.9; }
+  #transcript .w.proposed.pending { opacity: 0.7; }
+  #transcript .w.kept-by-debate { text-decoration: none; border-bottom: 1.5px dotted var(--accent); }
+  #transcript .w.chat-diff-highlight { background: rgba(31, 111, 235, 0.15); box-shadow: 0 0 0 2px var(--accent); border-radius: 3px; }
+  .pause-chip { font-family: var(--mono); font-size: var(--fs-small); padding: 1px 5px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin: 0 2px; user-select: none; cursor: pointer; display: inline-block; }
   .pause-chip.rejected { opacity: 0.4; text-decoration: line-through; }
-  .takepill { display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 8px;margin:0 2px;border-radius:999px;background:var(--bg-raise);border:1px dashed var(--border);cursor:pointer;color:var(--ink-2); }
-  .takepill.open { border-style:solid; }
-  .takebody { display:none; margin:2px 0 6px; padding:4px 8px; border-left:2px solid var(--border); font-size:12px; }
-  .takebody.open { display:block; }
-  .takeopt { display:block; padding:2px 0; cursor:pointer; }
-  .takeopt.sel { color: var(--accent); font-weight:600; }
+  .takepill { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-small); padding: 1px 8px; margin: 0 2px; border-radius: 999px; background: var(--bg-raise); cursor: pointer; color: var(--ink-2); }
+  .takebody { display: none; margin: 2px 0 6px; padding: 4px 8px; border-left: 2px solid var(--accent); font-size: var(--fs-ui); }
+  .takebody.open { display: block; }
+  .takeopt { display: block; padding: 2px 0; cursor: pointer; }
+  .takeopt.sel { color: var(--accent); font-weight: 600; }
 
   /* ---------- timeline dock ---------- */
-  #tlDock { border-top: 1px solid var(--border-soft); flex: none; padding: 6px 12px 8px; height: 176px; display: flex; flex-direction: column; }
-  #tlBar { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
-  #tlBar .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); }
+  #tlDock {
+    background: var(--bg-sunken); flex: none; padding: 6px 12px 8px; height: 176px;
+    display: flex; flex-direction: column; border-top: 1px solid var(--border-soft);
+  }
+  #tlBar { display: flex; align-items: center; gap: var(--sp2); margin-bottom: 4px; flex-wrap: wrap; }
+  #tlBar .lbl { font-size: var(--fs-small); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); font-weight: 600; }
   #tlBar button {
-    font: inherit; font-size: 12px; width: auto; padding: 1px 8px; color: var(--ink-2);
-    background: transparent; border: 1px solid var(--border-soft); border-radius: 6px; cursor: pointer;
+    font-size: var(--fs-small); width: auto; padding: 2px 8px; color: var(--ink-2);
+    background: var(--bg); border: none; border-radius: 5px; cursor: pointer;
   }
   #tlBar button:hover { background: var(--bg-raise); color: var(--ink); }
-  #tlBar button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #tlBar button.on { background: var(--accent); color: #fff; }
   #tlBar .spacer { flex: 1; }
-  #tlBar .kbd { font-size: 10.5px; color: var(--ink-2); }
-  #timeline { width: 100%; flex: 1; min-height: 80px; display: block; border-radius: 8px; background: var(--bg-raise); touch-action: none; }
+  #tlBar .kbd { font-size: var(--fs-small); color: var(--ink-2); }
+  #timeline { width: 100%; flex: 1; min-height: 80px; display: block; border-radius: 6px; background: var(--bg-raise); touch-action: none; }
+  .tl-labels { display: none; }
 
   /* ---------- transient popovers ---------- */
   #debatePop, #errPop {
     position: absolute; top: 44px; right: 12px; z-index: 40;
-    background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px;
-    box-shadow: 0 8px 28px rgba(41, 38, 27, 0.14); display: none;
+    background: var(--bg); border: none; border-radius: 10px; padding: 14px;
+    box-shadow: 0 8px 28px rgba(41, 38, 27, 0.12); display: none;
   }
   #debatePop { width: 360px; max-height: 60vh; overflow-y: auto; }
-  #errPop { width: 340px; border-color: var(--danger); }
+  #errPop { width: 340px; box-shadow: 0 8px 28px rgba(176, 58, 46, 0.18); }
 
   .toast {
     position: fixed; bottom: 158px; left: 50%; transform: translateX(-50%);
-    background: var(--ink); color: var(--bg); border-radius: 8px; padding: 7px 15px;
-    font-size: 12.5px; opacity: 0; pointer-events: none; transition: opacity 200ms; z-index: 40;
+    background: var(--bg-raise); color: var(--ink); border-radius: 8px; padding: 8px 16px;
+    font-size: var(--fs-ui); box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+    border: none; opacity: 0; pointer-events: none; transition: opacity 120ms ease-out; z-index: 40;
   }
-  .toast.show { opacity: 0.96; }
+  .toast.show { opacity: 0.98; }
 
   /* ---------- Chat Sidebar (Sprint 3) ---------- */
   #chatSidebar {
-    width: 280px; flex: none; display: flex; flex-direction: column;
-    border-left: 1px solid var(--border-soft); background: var(--bg);
-    min-width: 0; min-height: 0; z-index: 10;
+    width: 320px; flex: none; display: flex; flex-direction: column;
+    background: var(--bg); min-width: 0; min-height: 0; z-index: 10;
+    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.06);
   }
   .chat-header {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px; border-bottom: 1px solid var(--border-soft); flex: none;
+    padding: 10px 14px; flex: none;
   }
-  .chat-title { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 13px; color: var(--accent); }
-  .chat-close-btn { background: none; border: none; cursor: pointer; color: var(--ink-2); font-size: 14px; padding: 2px 6px; border-radius: 4px; }
+  .chat-title { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: var(--fs-ui); color: var(--accent); }
+  .chat-close-btn { background: none; border: none; cursor: pointer; color: var(--ink-2); font-size: var(--fs-head); padding: 2px 6px; border-radius: 4px; }
   .chat-close-btn:hover { background: var(--bg-raise); color: var(--ink); }
   .chat-status-line {
-    padding: 4px 12px; font-size: 11px; color: var(--ink-2); background: var(--bg-raise);
-    border-bottom: 1px solid var(--border-soft); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none;
+    padding: 4px 14px; font-size: var(--fs-small); color: var(--ink-2); background: var(--bg-raise);
+    font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none;
   }
   .chat-messages {
-    flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px;
-    font-size: 12px; line-height: 1.45;
+    flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: var(--sp2);
+    font-size: var(--fs-ui); line-height: 1.45;
   }
   .chat-msg { display: flex; flex-direction: column; max-width: 92%; }
   .chat-msg.user {
-    align-self: flex-end; background: rgba(31, 111, 235, 0.1); border: 1px solid rgba(31, 111, 235, 0.25);
-    color: var(--ink); border-radius: 10px 10px 2px 10px; padding: 7px 10px;
+    align-self: flex-end; background: var(--accent-soft); color: var(--ink);
+    border-radius: 10px 10px 2px 10px; padding: 7px 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
   .chat-msg.assistant {
-    align-self: flex-start; background: var(--bg-raise); border: 1px solid var(--border-soft);
-    color: var(--ink); border-radius: 10px 10px 10px 2px; padding: 7px 10px;
+    align-self: flex-start; background: var(--bg-raise); color: var(--ink);
+    border-radius: 10px 10px 10px 2px; padding: 7px 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
   .chat-msg-text { word-break: break-word; white-space: pre-wrap; }
-  .chat-options-group { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+  .chat-options-group { display: flex; flex-wrap: wrap; gap: 5px; margin-top: var(--sp2); }
   .chat-opt-btn {
-    font: inherit; font-size: 11px; padding: 4px 9px; border-radius: 6px;
-    border: 1px solid var(--accent); background: var(--bg); color: var(--accent);
-    cursor: pointer; transition: all 120ms; text-align: left;
+    font-size: var(--fs-small); padding: 4px 9px; border-radius: 5px;
+    border: none; background: var(--bg-raise); color: var(--accent);
+    cursor: pointer; transition: all 120ms ease-out; text-align: left;
   }
   .chat-opt-btn:hover { background: var(--accent); color: #fff; }
-  .chat-opt-btn.recommended { background: rgba(31, 111, 235, 0.1); font-weight: 600; }
+  .chat-opt-btn.recommended { background: var(--accent-soft); font-weight: 600; }
   .chat-diff-box {
-    margin-top: 8px; background: rgba(255, 215, 0, 0.12); border: 1px dashed #d4a017;
-    border-radius: 6px; padding: 8px; font-size: 11.5px;
+    margin-top: var(--sp2); background: var(--bg-raise);
+    border-radius: 6px; padding: 8px; font-size: var(--fs-small);
   }
   .chat-diff-actions { display: flex; gap: 6px; margin-top: 6px; }
   .chat-status-ticker {
-    padding: 4px 12px; font-size: 11px; color: var(--accent); background: rgba(31, 111, 235, 0.08);
-    border-top: 1px solid var(--border-soft); animation: chatPulse 1.5s infinite; flex: none;
+    padding: 4px 14px; font-size: var(--fs-small); color: var(--accent); background: var(--accent-soft);
+    animation: chatPulse 1.5s infinite; flex: none;
   }
   @keyframes chatPulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
   .chat-suggestions {
-    display: flex; gap: 4px; padding: 6px 12px; overflow-x: auto; flex: none;
-    border-top: 1px solid var(--border-soft); scrollbar-width: none;
+    display: flex; gap: var(--sp1); padding: 6px 14px; overflow-x: auto; flex: none;
+    scrollbar-width: none;
   }
   .chat-suggestions::-webkit-scrollbar { display: none; }
   .chat-chip {
-    font-size: 11px; white-space: nowrap; padding: 3px 8px; border-radius: 999px;
-    border: 1px solid var(--border-soft); background: var(--bg-raise); color: var(--ink-2);
-    cursor: pointer; transition: all 120ms;
+    font-size: var(--fs-small); white-space: nowrap; padding: 3px 8px; border-radius: 999px;
+    border: none; background: var(--bg-raise); color: var(--ink-2);
+    cursor: pointer; transition: all 120ms ease-out;
   }
-  .chat-chip:hover { border-color: var(--accent); color: var(--accent); background: var(--bg); }
+  .chat-chip:hover { color: var(--accent); background: #e3dfd0; }
   .chat-input-bar {
-    display: flex; gap: 6px; padding: 8px 12px; border-top: 1px solid var(--border-soft);
-    background: var(--bg); flex: none;
+    display: flex; gap: 6px; padding: 8px 14px; background: var(--bg); flex: none;
   }
-  .chat-input-bar input { flex: 1; font-size: 12px; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border); }
-  .chat-input-bar button { flex: none; font-size: 12px; padding: 5px 12px; }
+  .chat-input-bar input { flex: 1; font-size: var(--fs-ui); padding: 6px 9px; border-radius: 6px; border: 1px solid var(--border-soft); }
+  .chat-input-bar button { flex: none; font-size: var(--fs-ui); padding: 6px 14px; }
   @media (max-width: 900px) {
     #chatSidebar { position: absolute; right: 0; top: 0; bottom: 0; box-shadow: -4px 0 20px rgba(0,0,0,0.15); }
   }
@@ -270,13 +350,14 @@
     *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
   }
   .w.bleeped {
-    background: rgba(239, 68, 68, 0.22) !important;
+    background: rgba(176, 58, 46, 0.12) !important;
     color: var(--danger) !important;
     text-decoration: line-through;
+    text-decoration-color: var(--danger);
   }
   .w.bleeped::after {
     content: ' 🔇';
-    font-size: 10px;
+    font-size: var(--fs-small);
     text-decoration: none;
     display: inline-block;
   }
@@ -290,11 +371,11 @@
   <input type="text" id="askInput" placeholder="Ask the editor…  e.g. make it 15 seconds, cut the intro, keep the demo" style="width:360px">
   <button class="tbtn" id="askBtn" disabled title="send to GLM with the current cut + feedback history">Ask AI</button>
   <span style="display:flex;gap:2px" id="aspectSeg">
-      <button class="tbtn" data-orient="9:16" style="width:auto;padding:3px 8px;font-size:11px">9:16</button>
-      <button class="tbtn" data-orient="16:9" style="width:auto;padding:3px 8px;font-size:11px">16:9</button>
-      <button class="tbtn" data-orient="1:1" style="width:auto;padding:3px 8px;font-size:11px">1:1</button>
+      <button class="tbtn" data-orient="9:16" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">9:16</button>
+      <button class="tbtn" data-orient="16:9" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">16:9</button>
+      <button class="tbtn" data-orient="1:1" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">1:1</button>
     </span>
-  <span id="durChip" style="font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums"></span>
+  <span id="durChip" style="font-size:var(--fs-mono);color:var(--ink-2);font-variant-numeric:tabular-nums"></span>
   <span class="chip" id="debateChip" title="editorial council debate log" hidden>🧠 Council ▾</span>
   <span class="chip" id="modeChip" title="current edit source">local</span>
   <button class="tbtn" id="chatToggleBtn" title="Toggle Nila Chat (⌘K)">💬 Chat</button>
@@ -302,10 +383,10 @@
   <button class="tbtn primary" id="exportBtn" disabled>Export MP4</button>
 </header>
 
-<div id="restoreBanner" hidden style="background:var(--bg-raise);border-bottom:1px solid var(--accent);padding:7px 16px;display:flex;align-items:center;gap:12px;font-size:12.5px;color:var(--ink);flex:none">
+<div id="restoreBanner" hidden style="background:var(--bg-raise);border-bottom:1px solid var(--accent);padding:7px 16px;display:flex;align-items:center;gap:12px;font-size:var(--fs-ui);color:var(--ink);flex:none">
   <span id="restoreMsg" style="flex:1">Saved edit found for this video. Restore last edit?</span>
-  <button id="restoreBtn" class="tbtn primary" style="padding:3px 12px;font-size:12px">Restore last edit</button>
-  <button id="dismissRestoreBtn" class="tbtn" style="padding:3px 8px;font-size:12px">✕ Dismiss</button>
+  <button id="restoreBtn" class="tbtn primary" style="padding:4px 12px;font-size:var(--fs-small)">Restore last edit</button>
+  <button id="dismissRestoreBtn" class="tbtn" style="padding:4px 8px;font-size:var(--fs-small)">✕ Dismiss</button>
 </div>
 
 <main>
@@ -339,7 +420,7 @@
             <div id="scoreMeters" style="display:flex;flex-direction:column;gap:3px"></div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:6px">
               <span id="scoreTotal" style="font-family:var(--serif);font-size:22px;font-weight:700">–</span>
-              <span id="scoreWpm" style="font-size:11px;color:var(--ink-2)"></span>
+              <span id="scoreWpm" style="font-size:var(--fs-small);color:var(--ink-2)"></span>
             </div>
           </div>
         </section>
@@ -385,9 +466,9 @@
             <label style="margin-top:8px">Target duration <span id="durVal"></span></label>
             <input type="range" id="durSlider" min="5" max="90" step="1" value="30" style="width:100%;accent-color:var(--accent)">
             <div style="display:flex;gap:4px">
-              <button class="tbtn" id="dur30" style="width:auto;padding:2px 8px;font-size:11px">&lt;30s</button>
-              <button class="tbtn" id="dur60" style="width:auto;padding:2px 8px;font-size:11px">30-60s</button>
-              <button class="tbtn" id="dur90" style="width:auto;padding:2px 8px;font-size:11px">60-90s</button>
+              <button class="tbtn" id="dur30" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">&lt;30s</button>
+              <button class="tbtn" id="dur60" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">30-60s</button>
+              <button class="tbtn" id="dur90" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">60-90s</button>
             </div>
           </div>
         </section>
@@ -401,12 +482,12 @@
           </div>
           <h3>Overlays</h3>
           <div id="overlayList" style="display:flex;flex-direction:column;gap:6px"></div>
-          <div class="empty-hint" style="font-size:11.5px">Drag overlays on the player to move them. Edit text above.</div>
+          <div class="empty-hint" style="font-size:var(--fs-small)">Drag overlays on the player to move them. Edit text above.</div>
         </section>
 
         <section class="panel" data-panel="sticker" hidden>
           <div id="stickerSuggestionBox" style="margin-bottom:8px" hidden>
-            <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px">💡 Suggested for this video:</div>
+            <div style="font-size:var(--fs-small);font-weight:600;color:var(--accent);margin-bottom:4px">💡 Suggested for this video:</div>
             <div id="stickerSuggestions" style="display:flex;flex-wrap:wrap;gap:4px"></div>
           </div>
           <h3>Emoji — click to add at playhead</h3>
@@ -421,14 +502,14 @@
 
         <section class="panel" data-panel="effects" hidden>
           <h3>Clip effects &amp; masks</h3>
-          <div class="empty-hint" style="font-size:12px">Select a clip in the timeline — its effects and mask controls appear in the Inspector on the right.</div>
+          <div class="empty-hint" style="font-size:var(--fs-small)">Select a clip in the timeline — its effects and mask controls appear in the Inspector on the right.</div>
           <h3>Global polish</h3>
           <div style="display:flex;gap:4px;flex-wrap:wrap">
-            <button class="tbtn" data-lut="none" style="width:auto;padding:2px 8px;font-size:11px">None</button>
-            <button class="tbtn" data-lut="crisp" style="width:auto;padding:2px 8px;font-size:11px">Tech Crisp</button>
-            <button class="tbtn" data-lut="warm" style="width:auto;padding:2px 8px;font-size:11px">Warm</button>
-            <button class="tbtn" data-lut="punch" style="width:auto;padding:2px 8px;font-size:11px">Punch</button>
-            <label style="display:block;margin-top:6px;font-size:11px;color:var(--ink-2)">External .cube LUT: <input type="file" id="cubeFile" accept=".cube" style="font-size:10px"></label>
+            <button class="tbtn" data-lut="none" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">None</button>
+            <button class="tbtn" data-lut="crisp" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">Tech Crisp</button>
+            <button class="tbtn" data-lut="warm" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">Warm</button>
+            <button class="tbtn" data-lut="punch" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">Punch</button>
+            <label style="display:block;margin-top:6px;font-size:var(--fs-small);color:var(--ink-2)">External .cube LUT: <input type="file" id="cubeFile" accept=".cube" style="font-size:var(--fs-small)"></label>
           </div>
           <label style="margin-top:8px">LUT intensity <span id="polishMixV">65%</span></label>
           <input type="range" id="polishMix" min="0" max="100" value="65" style="width:100%;accent-color:var(--accent)">
@@ -501,10 +582,10 @@
             </select>
             <button class="tbtn primary" id="translateCaptionsBtn" style="width:auto;padding:3px 8px">Translate</button>
           </div>
-          <button class="tbtn" id="resetTranslateBtn" style="width:auto;padding:2px 8px;font-size:11px" hidden>↺ Show original</button>
+          <button class="tbtn" id="resetTranslateBtn" style="width:auto;padding:2px 8px;font-size:var(--fs-small)" hidden>↺ Show original</button>
           <h3 style="margin-top:8px">SRT</h3>
-          <button class="tbtn" id="srtExport" style="width:auto;padding:3px 10px;font-size:12px;align-self:flex-start">Export .srt</button>
-          <div class="empty-hint" style="font-size:11.5px">Captions of the edited timeline as SubRip.</div>
+          <button class="tbtn" id="srtExport" style="width:auto;padding:3px 10px;font-size:var(--fs-ui);align-self:flex-start">Export .srt</button>
+          <div class="empty-hint" style="font-size:var(--fs-small)">Captions of the edited timeline as SubRip.</div>
         </section>
 
         <section class="panel" data-panel="settings" hidden>
@@ -575,7 +656,7 @@
             <option value="https://open.bigmodel.cn/api/paas/v4">bigmodel.cn</option>
           </select>
           <label>Edit instructions for the AI (optional — steers what to cut / keep)</label>
-          <textarea id="glmPrompt" rows="3" placeholder="e.g. keep only the product demo, cut the intro story and all sponsor talk, target ~25s" style="font:inherit;font-size:13px;color:var(--ink);background:var(--bg);width:100%;border:1px solid var(--border);border-radius:7px;padding:4px 7px;resize:vertical"></textarea>
+          <textarea id="glmPrompt" rows="3" placeholder="e.g. keep only the product demo, cut the intro story and all sponsor talk, target ~25s" style="font:inherit;font-size:var(--fs-ui);color:var(--ink);background:var(--bg-sunken);width:100%;border:1px solid var(--border-soft);border-radius:7px;padding:6px 8px;resize:vertical"></textarea>
           <label style="display:flex;gap:6px;align-items:center;margin-top:8px">
             <input type="checkbox" id="visionOn" style="accent-color:var(--accent)">
             Vision context — sends ~6 sampled frames from this video to GLM
@@ -615,24 +696,26 @@
       </div>
       <section id="transcriptPane">
         <header style="gap:6px;flex-wrap:wrap">
-          <button class="tbtn" id="tabScript" style="width:auto;padding:2px 10px;font-size:11.5px">📖 Story Script</button>
-          <button class="tbtn" id="tabRaw" style="width:auto;padding:2px 10px;font-size:11.5px">🗺️ Raw Map</button>
-          <input type="text" id="wordSearch" placeholder="search…" style="width:90px;font-size:12px;padding:2px 6px">
+          <button class="tbtn" id="tabScript" style="width:auto;padding:2px 10px;font-size:var(--fs-small)">📖 Story Script</button>
+          <button class="tbtn" id="tabRaw" style="width:auto;padding:2px 10px;font-size:var(--fs-small)">🗺️ Raw Map</button>
+          <input type="text" id="wordSearch" placeholder="search…" style="width:90px;font-size:var(--fs-small);padding:2px 6px">
           <span id="wordDetail" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">word timings after Analyze</span>
         </header>
         <div id="chapters" hidden style="padding:6px 12px;border-bottom:1px solid var(--border-soft)"></div>
         <div style="padding:4px 12px;border-bottom:1px solid var(--border-soft);display:none" id="chapterBar">
-          <button class="tbtn" id="copyChaptersBtn" style="width:auto;padding:2px 10px;font-size:11.5px">Copy YouTube description</button>
+          <button class="tbtn" id="copyChaptersBtn" style="width:auto;padding:2px 10px;font-size:var(--fs-small)">Copy YouTube description</button>
         </div>
-        <div id="proposalBar" style="display:none;padding:8px 12px;border-bottom:1px solid var(--border-soft);background:var(--bg-raise);font-size:12px;align-items:center;gap:8px;flex-wrap:wrap">
-          <span id="proposalInfo" style="font-weight:600;color:var(--ink);flex:1;min-width:160px"></span>
-          <div style="display:flex;gap:6px;align-items:center">
-            <button class="tbtn primary" id="applyAllPropsBtn" style="width:auto;padding:3px 10px;font-size:11.5px;background:var(--accent);color:#fff">Apply all</button>
-            <button class="tbtn" id="debatePropsBtn" style="width:auto;padding:3px 10px;font-size:11.5px">Debate ⚖</button>
-            <button class="tbtn" id="dismissAllPropsBtn" style="width:auto;padding:3px 10px;font-size:11.5px">Dismiss all</button>
+        <div id="proposalBar" style="display:none;position:sticky;top:0;z-index:5;background:var(--bg-raise);padding:6px 12px;border-bottom:1px solid var(--border-soft);font-size:var(--fs-small);align-items:center;gap:10px">
+          <span id="proposalInfo" style="font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+          <div style="display:flex;gap:10px;align-items:center;flex:none">
+            <button class="tlink accent" id="applyAllPropsBtn">Apply all</button>
+            <span style="color:var(--ink-2);opacity:0.5">·</span>
+            <button class="tlink accent" id="debatePropsBtn">Debate ⚖</button>
+            <span style="color:var(--ink-2);opacity:0.5">·</span>
+            <button class="tlink muted" id="dismissAllPropsBtn">Dismiss all</button>
           </div>
         </div>
-        <div id="debateSummaryBar" style="display:none;padding:6px 12px;border-bottom:1px solid var(--border-soft);background:rgba(31,111,235,0.06);font-size:11.5px;color:var(--accent);font-family:var(--mono)"></div>
+        <div id="debateSummaryBar" style="display:none;padding:6px 12px;border-bottom:1px solid var(--border-soft);background:rgba(31,111,235,0.06);font-size:var(--fs-small);color:var(--accent);font-family:var(--mono)"></div>
         <div id="transcript"></div>
         <div id="scriptView" style="display:none;padding:10px 12px;overflow-y:auto;flex:1"></div>
       </section>
@@ -668,8 +751,9 @@
       <button id="tlZoomOut" title="zoom out">−</button>
       <button id="tlZoomIn" title="zoom in">+</button>
       <button id="tlFit" title="fit (double-click timeline)">fit</button>
-      <button class="tbtn" id="razorChip" title="razor: click the V lane to split (Esc to exit)" style="width:auto;padding:1px 8px;font-size:12px">✂ Razor</button>
-      <button class="tbtn" id="voBtn" title="Record voiceover (mic)" style="width:auto;padding:1px 8px;font-size:12px">🎙️ Voiceover</button>
+      <button class="tbtn" id="toggleLabelsBtn" title="Toggle track labels" style="width:auto;padding:2px 8px;font-size:var(--fs-small)">🏷️ Labels</button>
+      <button class="tbtn" id="razorChip" title="razor: click the V lane to split (Esc to exit)" style="width:auto;padding:1px 8px;font-size:var(--fs-small)">✂ Razor</button>
+      <button class="tbtn" id="voBtn" title="Record voiceover (mic)" style="width:auto;padding:1px 8px;font-size:var(--fs-small)">🎙️ Voiceover</button>
       <span class="spacer"></span>
       <span class="kbd">drag edges = trim · drag clip = reorder · wheel = scroll · ⌘wheel = zoom · space = play · S = split</span>
     </div>
@@ -677,7 +761,7 @@
   </div>
 </main>
 
-  <div id="transcriptContextMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.18);padding:4px 0;min-width:150px;font-size:12px">
+  <div id="transcriptContextMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:none;border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,0.14);padding:4px 0;min-width:150px;font-size:var(--fs-ui)">
     <button class="ctx-item" data-action="cut">✂ Cut this</button>
     <button class="ctx-item" data-action="keep">🛡 Keep this</button>
     <button class="ctx-item" data-action="bleep">🔕 Bleep this word</button>
@@ -685,7 +769,7 @@
     <button class="ctx-item" data-action="punch">🔍 Zoom punch here</button>
   </div>
 
-  <div id="transitionMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.18);padding:8px 10px;min-width:170px;font-size:12px">
+  <div id="transitionMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:none;border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,0.14);padding:8px 10px;min-width:170px;font-size:var(--fs-ui)">
     <div style="font-weight:600;margin-bottom:6px;color:var(--ink)">Clip Transition</div>
     <select id="transTypeSel" style="width:100%;margin-bottom:6px;background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);padding:3px 5px;border-radius:4px">
       <option value="none">Cut (none)</option>
@@ -693,30 +777,30 @@
       <option value="flash">Flash (white)</option>
       <option value="whip-pan">Whip-Pan</option>
     </select>
-    <label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:2px">Duration: <span id="transDurVal">150ms</span></label>
+    <label style="font-size:var(--fs-small);color:var(--ink-2);display:block;margin-bottom:2px">Duration: <span id="transDurVal">150ms</span></label>
     <input type="range" id="transDurRng" min="100" max="500" step="25" value="150" style="width:100%;accent-color:var(--accent)">
     <div style="display:flex;justify-content:flex-end;gap:4px;margin-top:6px">
       <button class="tbtn" id="closeTransBtn" style="width:auto;padding:2px 8px">Close</button>
     </div>
   </div>
 
-  <div id="inlineChatBox" class="inline-chat-box" style="display:none;position:fixed;z-index:1010;background:var(--bg);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.22);padding:10px;width:320px;font-size:12px">
+  <div id="inlineChatBox" class="inline-chat-box" style="display:none;position:fixed;z-index:1010;background:var(--bg);border:none;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.14);padding:12px;width:320px;font-size:var(--fs-ui)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
       <span style="font-weight:600;color:var(--accent)">💬 Ask AI (Transcript)</span>
-      <button id="closeChatBtn" style="background:none;border:none;cursor:pointer;color:var(--ink-2);font-size:14px;padding:0 4px">✕</button>
+      <button id="closeChatBtn" style="background:none;border:none;cursor:pointer;color:var(--ink-2);font-size:var(--fs-head);padding:0 4px">✕</button>
     </div>
-    <div id="chatHistory" style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px;font-size:11.5px"></div>
+    <div id="chatHistory" style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px;font-size:var(--fs-small)"></div>
     <div id="chatDiffCard" style="display:none;background:var(--bg-raise);border:1px dashed var(--accent);border-radius:6px;padding:6px 8px;margin-bottom:8px">
       <div id="chatDiffLabel" style="font-weight:600;margin-bottom:2px"></div>
-      <div id="chatDiffExpl" style="color:var(--ink-2);font-size:11px;margin-bottom:6px"></div>
-      <div style="display:flex;gap:6px">
-        <button class="tbtn primary" id="applyChatOpBtn" style="width:auto;padding:2px 8px;font-size:11px;background:var(--accent);color:#fff">Apply</button>
-        <button class="tbtn" id="revertChatOpBtn" style="width:auto;padding:2px 8px;font-size:11px">Revert</button>
+      <div id="chatDiffExpl" style="color:var(--ink-2);font-size:var(--fs-small);margin-bottom:6px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="tlink accent" id="applyChatOpBtn" style="font-size:var(--fs-small)">Apply</button>
+        <button class="tlink muted" id="revertChatOpBtn" style="font-size:var(--fs-small)">Revert</button>
       </div>
     </div>
     <form id="inlineChatForm" style="display:flex;gap:4px">
-      <input type="text" id="inlineChatInput" placeholder="e.g. jangan dipotong, kasih jeda 0.3s…" style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--border-soft);border-radius:4px;background:var(--bg-input)">
-      <button type="submit" class="tbtn primary" style="width:auto;padding:4px 10px;font-size:11.5px;background:var(--accent);color:#fff">Send</button>
+      <input type="text" id="inlineChatInput" placeholder="e.g. jangan dipotong, kasih jeda 0.3s…" style="flex:1;font-size:var(--fs-ui);padding:4px 8px;border:1px solid var(--border-soft);border-radius:4px;background:var(--bg-sunken)">
+      <button type="submit" class="tbtn primary" style="width:auto;padding:4px 10px;font-size:var(--fs-small);background:var(--accent);color:#fff">Send</button>
     </form>
   </div>
 
@@ -724,8 +808,8 @@
     <div id="debateBody"></div>
   </div>
   <div id="errPop">
-    <h3 style="margin:0 0 6px;font-size:12px;color:var(--danger)">Export failed</h3>
-    <div id="errMsg" style="font-family:var(--mono);font-size:11px;color:var(--ink-2);max-height:120px;overflow:auto"></div>
+    <h3 style="margin:0 0 6px;font-size:var(--fs-ui);color:var(--danger)">Export failed</h3>
+    <div id="errMsg" style="font-family:var(--mono);font-size:var(--fs-small);color:var(--ink-2);max-height:120px;overflow:auto"></div>
     <div style="display:flex;gap:6px;margin-top:8px">
       <button class="tbtn primary" id="errRetry" style="width:auto;padding:4px 10px">Retry</button>
       <button class="tbtn" id="errEdl" style="width:auto;padding:4px 10px">Download EDL JSON</button>

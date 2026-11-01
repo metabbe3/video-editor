@@ -37,7 +37,7 @@ export async function renderMediaBin(app) {
   // A-roll header
   if (p.reg?.arollId) {
     const a = document.createElement('div');
-    a.style.cssText = 'font-size:11px;color:var(--ink-2);margin-bottom:6px';
+    a.style.cssText = 'font-size:var(--fs-small);color:var(--ink-2);margin-bottom:6px';
     a.textContent = `A-Roll: ${p.reg.arollId.split('/').pop()} — click B-roll below to cover cuts`;
     bin.appendChild(a);
   }
@@ -46,22 +46,22 @@ export async function renderMediaBin(app) {
   // thumbnails (hover-scrub via seek on a shared hidden video per card)
   for (const r of pool) {
     const card = document.createElement('div');
-    card.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px;border-radius:8px;cursor:grab;border:1px solid transparent';
+    card.style.cssText = 'display:flex;gap:8px;align-items:center;padding:4px 6px;border-radius:6px;cursor:grab;background:var(--bg)';
     card.draggable = true;
     card.ondragstart = (e) => e.dataTransfer.setData('application/x-fyp', JSON.stringify({ id: r.id, kind: r.kind }));
     card.onmouseenter = () => { card.style.background = 'var(--bg-raise)'; };
-    card.onmouseleave = () => { card.style.background = ''; };
+    card.onmouseleave = () => { card.style.background = 'var(--bg)'; };
     const img = document.createElement('img');
     if (!thumbCache.has(r.id)) thumbCache.set(r.id, await firstFrameThumb(r.file));
     const url = thumbCache.get(r.id);
     if (url) { img.src = url; img.style.cssText = 'width:64px;border-radius:6px;display:block'; }
     else img.remove();
     const meta = document.createElement('div');
-    meta.style.cssText = 'font-size:11.5px;color:var(--ink-2);flex:1;min-width:0';
+    meta.style.cssText = 'font-size:var(--fs-small);color:var(--ink-2);flex:1;min-width:0';
     meta.textContent = r.name;
     const btn = document.createElement('button');
     btn.className = 'tbtn';
-    btn.style.cssText = 'width:auto;padding:2px 8px;font-size:11px';
+    btn.style.cssText = 'width:auto;padding:3px 8px;font-size:var(--fs-small)';
     btn.textContent = '+ at playhead';
     btn.onclick = (e) => { e.stopPropagation(); insertBrollAtPlayhead(app, r.id); };
     card.append(img, meta, btn);
@@ -72,7 +72,7 @@ export async function renderMediaBin(app) {
   // auto-fill button
   const fill = document.createElement('button');
   fill.className = 'tbtn';
-  fill.style.cssText = 'width:100%;margin-top:8px';
+  fill.style.cssText = 'width:100%;margin-top:8px;padding:6px 12px;font-size:var(--fs-ui)';
   fill.textContent = '⚡ Auto-fill B-roll over jump cuts';
   fill.onclick = () => autoFillBroll(app);
   bin.appendChild(fill);

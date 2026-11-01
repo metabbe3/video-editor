@@ -553,6 +553,11 @@ export class App {
       $('razorChip').classList.toggle('on', this.razor);
       $('timeline').style.cursor = this.razor ? 'crosshair' : '';
     });
+    // track labels toggle
+    on('toggleLabelsBtn', 'click', () => {
+      const on = this.tlv?.toggleLabels?.();
+      $('toggleLabelsBtn')?.classList.toggle('on', !!on);
+    });
     // .cube LUT load
     on('cubeFile', 'change', async () => {
       const f = $('cubeFile').files[0];

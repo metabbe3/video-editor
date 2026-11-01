@@ -12,6 +12,18 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+function createSection(parent, title, defaultOpen = false) {
+  const details = document.createElement('details');
+  details.className = 'i-sec';
+  if (defaultOpen) details.open = true;
+  const summary = document.createElement('summary');
+  summary.className = 'i-sec-head';
+  summary.textContent = title;
+  details.appendChild(summary);
+  parent.appendChild(details);
+  return details;
+}
+
 export function renderInspector(app) {
   const el = $('inspector');
   const p = app.project;
@@ -170,10 +182,12 @@ export function renderInspector(app) {
   x.onclick = () => app.selectClip(null);
   head.appendChild(x);
 
-  kv(el, 'Source in → out', `${k.in.toFixed(2)} → ${k.out.toFixed(2)}s`);
-  kv(el, 'Edited length', `${(seg ? seg.dur : k.out - k.in).toFixed(2)}s`);
-  if (k.why) kv(el, 'Kept because', k.why);
-  if (k.locked) kv(el, '🔒', 'Locked — AI will not edit this card');
+  // Section 1: Timing & Speed (Open by default)
+  const timingSec = createSection(el, 'Timing & Speed', true);
+  kv(timingSec, 'Source in → out', `${k.in.toFixed(2)} → ${k.out.toFixed(2)}s`);
+  kv(timingSec, 'Edited length', `${(seg ? seg.dur : k.out - k.in).toFixed(2)}s`);
+  if (k.why) kv(timingSec, 'Kept because', k.why);
+  if (k.locked) kv(timingSec, '🔒', 'Locked — AI will not edit this card');
 
   // ⚡ speed + ❄ freeze (applied on change, not per-tick, so undo stays sane)
   const spdRow = document.createElement('div');
@@ -184,30 +198,31 @@ export function renderInspector(app) {
   spd.type = 'range'; spd.min = '0.25'; spd.max = '4'; spd.step = '0.05';
   spd.value = String(k.speed ?? 1);
   const spdVal = document.createElement('span');
-  spdVal.style.cssText = 'font-family:var(--mono);font-size:11.5px;min-width:34px;text-align:right';
+  spdVal.style.cssText = 'font-family:var(--mono);font-size:var(--fs-small);min-width:34px;text-align:right';
   spdVal.textContent = `${(k.speed ?? 1).toFixed(2).replace(/\.?0+$/, '')}×`;
   spd.oninput = () => (spdVal.textContent = `${Number(spd.value).toFixed(2).replace(/\.?0+$/, '')}×`);
   spd.onchange = () => app.mutateClip(i, { speed: Number(spd.value) === 1 ? undefined : Number(spd.value) });
   spdRow.append(spdLab, spd, spdVal);
-  el.appendChild(spdRow);
+  timingSec.appendChild(spdRow);
+
   const presets = document.createElement('div');
   presets.className = 'irow';
   for (const v of [0.5, 1, 1.5, 2]) {
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = 'width:auto;padding:2px 9px;font-size:11.5px';
+    b.style.cssText = 'width:auto;padding:2px 8px;font-size:var(--fs-small)';
     b.textContent = `${v}×`;
     b.onclick = () => app.mutateClip(i, { speed: v === 1 ? undefined : v });
     presets.appendChild(b);
   }
   const fz = document.createElement('button');
   fz.className = 'tbtn';
-  fz.style.cssText = 'width:auto;padding:2px 9px;font-size:11.5px;margin-left:auto';
+  fz.style.cssText = 'width:auto;padding:2px 8px;font-size:var(--fs-small);margin-left:auto';
   fz.textContent = k.freeze ? `❄ ${k.freeze.toFixed(1)}s — off` : '❄ Freeze 1s';
   fz.title = 'Hold this clip\'s last frame for N seconds (end-freeze)';
   fz.onclick = () => app.mutateClip(i, { freeze: k.freeze ? undefined : 1 });
   presets.appendChild(fz);
-  el.appendChild(presets);
+  timingSec.appendChild(presets);
 
   // 📈 Speed curve / ramp
   const curveRow = document.createElement('div');
@@ -215,7 +230,7 @@ export function renderInspector(app) {
   curveRow.style.flexWrap = 'wrap';
   const curveLab = document.createElement('span');
   curveLab.textContent = 'Curve:';
-  curveLab.style.cssText = 'font-size:11px;color:var(--ink-2);margin-right:4px';
+  curveLab.style.cssText = 'font-size:var(--fs-small);color:var(--ink-2);margin-right:4px';
   curveRow.appendChild(curveLab);
   const curves = [
     ['Off', null],
@@ -228,7 +243,7 @@ export function renderInspector(app) {
     const isCur = (!pts && !k.speedCurve) || (pts && JSON.stringify(k.speedCurve) === JSON.stringify(pts));
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = `width:auto;padding:1px 7px;font-size:11px${isCur ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+    b.style.cssText = `width:auto;padding:1px 7px;font-size:var(--fs-small)${isCur ? ';background:var(--accent);color:#fff;' : ''}`;
     b.textContent = name;
     b.onclick = () => app.mutateClip(i, { speedCurve: pts || undefined });
     curveRow.appendChild(b);
@@ -236,7 +251,7 @@ export function renderInspector(app) {
   const isCustom = k.speedCurve && !Object.values(SPEED_CURVE_PRESETS).some((p) => JSON.stringify(p) === JSON.stringify(k.speedCurve));
   const customBtn = document.createElement('button');
   customBtn.className = 'tbtn';
-  customBtn.style.cssText = `width:auto;padding:1px 7px;font-size:11px${isCustom ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+  customBtn.style.cssText = `width:auto;padding:1px 7px;font-size:var(--fs-small)${isCustom ? ';background:var(--accent);color:#fff;' : ''}`;
   customBtn.textContent = 'Custom';
   customBtn.onclick = () => {
     const pts = k.speedCurve || [
@@ -248,7 +263,7 @@ export function renderInspector(app) {
     app.mutateClip(i, { speedCurve: pts });
   };
   curveRow.appendChild(customBtn);
-  el.appendChild(curveRow);
+  timingSec.appendChild(curveRow);
 
   // If a speed curve is active, render interactive graph editor canvas
   if (k.speedCurve && k.speedCurve.length >= 2) {
@@ -257,20 +272,21 @@ export function renderInspector(app) {
     renderSpeedGraphCanvas(graphBox, k, (newPts) => {
       app.mutateClip(i, { speedCurve: newPts });
     });
-    el.appendChild(graphBox);
+    timingSec.appendChild(graphBox);
   }
 
-  // ↻ Rotate & ⇄ Flip
+  // Section 2: Transform & Crop
+  const xformSec = createSection(el, 'Transform & Crop', false);
   const orientRow = document.createElement('div');
   orientRow.className = 'irow';
   const rotBtn = document.createElement('button');
   rotBtn.className = 'tbtn';
-  rotBtn.style.cssText = 'width:auto;padding:2px 9px;font-size:11.5px';
+  rotBtn.style.cssText = 'width:auto;padding:2px 8px;font-size:var(--fs-small)';
   rotBtn.textContent = k.rotate ? `↻ Rotate ${k.rotate}°` : '↻ Rotate 90°';
   rotBtn.onclick = () => app.mutateClip(i, { rotate: nextRotate(k.rotate) });
   const flipBtn = document.createElement('button');
   flipBtn.className = 'tbtn';
-  flipBtn.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${k.flipH ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+  flipBtn.style.cssText = `width:auto;padding:2px 8px;font-size:var(--fs-small)${k.flipH ? ';background:var(--accent);color:#fff;' : ''}`;
   flipBtn.textContent = k.flipH ? '⇄ Mirror H (on)' : '⇄ Mirror H';
   flipBtn.onclick = () => app.mutateClip(i, { flipH: k.flipH ? undefined : true });
   orientRow.append(rotBtn, flipBtn);
@@ -279,7 +295,7 @@ export function renderInspector(app) {
   const isCropping = app.cropModeClipIndex === i;
   const cropBtn = document.createElement('button');
   cropBtn.className = 'tbtn';
-  cropBtn.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${isCropping ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+  cropBtn.style.cssText = `width:auto;padding:2px 8px;font-size:var(--fs-small)${isCropping ? ';background:var(--accent);color:#fff;' : ''}`;
   cropBtn.textContent = isCropping ? '📐 Done crop' : '📐 Crop';
   cropBtn.title = 'Drag on the player to crop rectangle';
   cropBtn.onclick = () => app.toggleCropMode(i);
@@ -287,7 +303,7 @@ export function renderInspector(app) {
   if (k.cropRect) {
     const rstCrop = document.createElement('button');
     rstCrop.className = 'tbtn';
-    rstCrop.style.cssText = 'width:auto;padding:2px 7px;font-size:11px;color:var(--danger)';
+    rstCrop.style.cssText = 'width:auto;padding:2px 6px;font-size:var(--fs-small);color:var(--danger)';
     rstCrop.textContent = '✕ Reset crop';
     rstCrop.onclick = () => {
       app.mutateClip(i, { cropRect: undefined });
@@ -295,16 +311,17 @@ export function renderInspector(app) {
     };
     orientRow.appendChild(rstCrop);
   }
-  el.appendChild(orientRow);
+  xformSec.appendChild(orientRow);
 
-  // 🔊 Audio fade in/out
+  // Section 3: Audio & Fade
+  const audioSec = createSection(el, 'Audio & Fade', false);
   const fadeRow = document.createElement('div');
   fadeRow.className = 'irow';
   fadeRow.style.gap = '8px';
   const inCol = document.createElement('div');
   inCol.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:2px';
   const inLab = document.createElement('label');
-  inLab.style.fontSize = '10.5px';
+  inLab.style.fontSize = 'var(--fs-small)';
   inLab.textContent = `Fade in: ${k.fadeIn || 0}ms`;
   const inRng = document.createElement('input');
   inRng.type = 'range'; inRng.min = '0'; inRng.max = '2000'; inRng.step = '50';
@@ -316,7 +333,7 @@ export function renderInspector(app) {
   const outCol = document.createElement('div');
   outCol.style.cssText = 'flex:1;display:flex;flex-direction:column;gap:2px';
   const outLab = document.createElement('label');
-  outLab.style.fontSize = '10.5px';
+  outLab.style.fontSize = 'var(--fs-small)';
   outLab.textContent = `Fade out: ${k.fadeOut || 0}ms`;
   const outRng = document.createElement('input');
   outRng.type = 'range'; outRng.min = '0'; outRng.max = '2000'; outRng.step = '50';
@@ -326,9 +343,10 @@ export function renderInspector(app) {
   outCol.append(outLab, outRng);
 
   fadeRow.append(inCol, outCol);
-  el.appendChild(fadeRow);
+  audioSec.appendChild(fadeRow);
 
-  // ✨ per-clip effect stack — toggle chips + param sliders from the registry schema
+  // Section 4: Effects
+  const fxSec = createSection(el, 'Effects', false);
   const fxCtrl = document.createElement('div');
   fxCtrl.className = 'irow';
   fxCtrl.style.flexWrap = 'wrap';
@@ -337,7 +355,7 @@ export function renderInspector(app) {
     const on = effects.some((e) => e.id === id && e.on !== false);
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = `width:auto;padding:2px 9px;font-size:11.5px${on ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+    b.style.cssText = `width:auto;padding:2px 8px;font-size:var(--fs-small)${on ? ';background:var(--accent);color:#fff;' : ''}`;
     b.textContent = def.label;
     b.onclick = () => {
       const next = on
@@ -347,7 +365,7 @@ export function renderInspector(app) {
     };
     fxCtrl.appendChild(b);
   }
-  el.appendChild(fxCtrl);
+  fxSec.appendChild(fxCtrl);
   for (const e of effects.filter((x) => x.on !== false && EFFECTS[x.id])) {
     for (const [pk, schema] of Object.entries(EFFECTS[e.id].params)) {
       const row = document.createElement('div');
@@ -358,18 +376,19 @@ export function renderInspector(app) {
       rng.type = 'range'; rng.min = String(schema.min); rng.max = String(schema.max); rng.step = String(schema.step);
       rng.value = String(clampParams(e.id, e.params)[pk]);
       const val = document.createElement('span');
-      val.style.cssText = 'font-family:var(--mono);font-size:11px;min-width:28px;text-align:right';
+      val.style.cssText = 'font-family:var(--mono);font-size:var(--fs-small);min-width:28px;text-align:right';
       val.textContent = String(clampParams(e.id, e.params)[pk]);
       rng.oninput = () => (val.textContent = rng.value);
       rng.onchange = () => app.mutateClip(i, {
         effects: effects.map((x) => (x === e ? { ...x, params: { ...clampParams(x.id, x.params), [pk]: Number(rng.value) } } : x)),
       });
       row.append(lab, rng, val);
-      el.appendChild(row);
+      fxSec.appendChild(row);
     }
   }
 
-  // 🎭 shape mask
+  // Section 5: Shape Mask
+  const maskSec = createSection(el, 'Shape Mask', false);
   const maskRow = document.createElement('div');
   maskRow.className = 'irow';
   maskRow.style.flexWrap = 'wrap';
@@ -378,14 +397,14 @@ export function renderInspector(app) {
     const on = (k.mask?.shape ?? 'none') === s;
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = `width:auto;padding:2px 8px;font-size:11.5px${on ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+    b.style.cssText = `width:auto;padding:2px 8px;font-size:var(--fs-small)${on ? ';background:var(--accent);color:#fff;' : ''}`;
     b.textContent = s === 'cinematic-bars' ? 'bars' : s;
     b.onclick = () => app.mutateClip(i, {
       mask: s === 'none' ? undefined : { shape: s, x: 0.5, y: 0.5, w: s === 'split' || s === 'cinematic-bars' ? 1 : 0.7, h: s === 'split' || s === 'cinematic-bars' ? 1 : 0.7, feather: 0.06, invert: false },
     });
     maskRow.appendChild(b);
   }
-  el.appendChild(maskRow);
+  maskSec.appendChild(maskRow);
   if (k.mask) {
     if (k.mask.shape === 'rect' || k.mask.shape === 'ellipse') {
       for (const [pk, lab] of [['w', 'Width'], ['h', 'Height']]) {
@@ -397,12 +416,12 @@ export function renderInspector(app) {
         rng.type = 'range'; rng.min = '0.1'; rng.max = '1'; rng.step = '0.02';
         rng.value = String(k.mask[pk] ?? 0.7);
         const val = document.createElement('span');
-        val.style.cssText = 'font-family:var(--mono);font-size:11px;min-width:28px;text-align:right';
+        val.style.cssText = 'font-family:var(--mono);font-size:var(--fs-small);min-width:28px;text-align:right';
         val.textContent = rng.value;
         rng.oninput = () => (val.textContent = rng.value);
         rng.onchange = () => app.mutateClip(i, { mask: { ...k.mask, [pk]: Number(rng.value) } });
         row.append(l, rng, val);
-        el.appendChild(row);
+        maskSec.appendChild(row);
       }
     }
     const invRow = document.createElement('div');
@@ -415,16 +434,17 @@ export function renderInspector(app) {
     inv.style.accentColor = 'var(--accent)';
     inv.onchange = () => app.mutateClip(i, { mask: { ...k.mask, invert: inv.checked } });
     invRow.append(invLab, inv);
-    el.appendChild(invRow);
+    maskSec.appendChild(invRow);
   }
 
-  // 🎨 Blend mode
+  // Section 6: Keyframes & Blend
+  const kfSec = createSection(el, 'Keyframes & Blend', false);
   const blendRow = document.createElement('div');
   blendRow.className = 'irow';
   const blendLab = document.createElement('label');
   blendLab.textContent = '🎨 Blend mode';
   const blendSel = document.createElement('select');
-  blendSel.style.cssText = 'background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);border-radius:4px;font-size:11px;padding:2px 6px';
+  blendSel.style.cssText = 'background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);border-radius:4px;font-size:var(--fs-small);padding:2px 6px';
   for (const bm of ['normal', 'multiply', 'screen', 'overlay', 'soft-light']) {
     const opt = document.createElement('option');
     opt.value = bm; opt.textContent = bm;
@@ -433,13 +453,13 @@ export function renderInspector(app) {
   }
   blendSel.onchange = () => app.mutateClip(i, { blendMode: blendSel.value === 'normal' ? undefined : blendSel.value });
   blendRow.append(blendLab, blendSel);
-  el.appendChild(blendRow);
+  kfSec.appendChild(blendRow);
 
   // ◆ Keyframes manual
   const kfSection = document.createElement('div');
   kfSection.style.cssText = 'margin-top:6px;border-top:1px solid var(--border-soft);padding-top:6px';
   const kfHead = document.createElement('div');
-  kfHead.style.cssText = 'font-size:11px;font-weight:600;color:var(--ink-2);margin-bottom:4px;display:flex;align-items:center;justify-content:space-between';
+  kfHead.style.cssText = 'font-size:var(--fs-small);font-weight:600;color:var(--ink-2);margin-bottom:4px;display:flex;align-items:center;justify-content:space-between';
   kfHead.textContent = '◆ Keyframes (at playhead)';
   kfSection.appendChild(kfHead);
 
@@ -468,7 +488,7 @@ export function renderInspector(app) {
     rng.value = String(curVal);
 
     const valSpan = document.createElement('span');
-    valSpan.style.cssText = 'font-family:var(--mono);font-size:11px;min-width:32px;text-align:right';
+    valSpan.style.cssText = 'font-family:var(--mono);font-size:var(--fs-small);min-width:32px;text-align:right';
     valSpan.textContent = `${Number(curVal).toFixed(2)}${cfg.unit}`;
 
     // ◆ Button
@@ -476,7 +496,7 @@ export function renderInspector(app) {
     const hasKf = findKeyframeNear(track, segProg, 0.03);
     const kfBtn = document.createElement('button');
     kfBtn.className = 'tbtn';
-    kfBtn.style.cssText = `width:22px;height:22px;padding:0;font-size:11px;display:flex;align-items:center;justify-content:center;${hasKf ? 'background:#f59e0b;color:#000;border-color:#f59e0b' : 'color:var(--ink-2)'}`;
+    kfBtn.style.cssText = `width:22px;height:22px;padding:0;font-size:var(--fs-small);display:flex;align-items:center;justify-content:center;border-radius:4px;${hasKf ? 'background:var(--accent);color:#fff;' : 'color:var(--ink-2);'}`;
     kfBtn.textContent = '◆';
     kfBtn.title = hasKf ? 'Click to delete keyframe at playhead' : 'Click to add keyframe at playhead';
 
@@ -505,15 +525,15 @@ export function renderInspector(app) {
     row.append(lab, rng, valSpan, kfBtn);
     kfSection.appendChild(row);
   }
-  el.appendChild(kfSection);
+  kfSec.appendChild(kfSection);
 
-  // actions
+  // Actions (always at bottom)
   const btns = document.createElement('div');
-  btns.style.cssText = 'display:flex;gap:4px;margin-top:6px;flex-wrap:wrap';
+  btns.style.cssText = 'display:flex;gap:4px;margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);flex-wrap:wrap';
   const btn = (label, fn, title) => {
     const b = document.createElement('button');
     b.className = 'tbtn';
-    b.style.cssText = 'width:auto;padding:2px 10px;font-size:12px';
+    b.style.cssText = 'width:auto;padding:4px 10px;font-size:var(--fs-small)';
     b.textContent = label; b.title = title || '';
     b.onclick = fn;
     btns.appendChild(b);
@@ -531,7 +551,7 @@ function kv(el, k, v) {
   const key = document.createElement('label');
   key.textContent = k;
   const val = document.createElement('span');
-  val.style.cssText = 'font-family:var(--mono);font-size:11.5px';
+  val.style.cssText = 'font-family:var(--mono);font-size:var(--fs-small)';
   val.textContent = v;
   d.append(key, val);
   el.appendChild(d);
@@ -549,7 +569,7 @@ export function renderSpeedGraphCanvas(container, clip, onUpdate) {
       ];
   const cv = document.createElement('canvas');
   cv.width = 200; cv.height = 70;
-  cv.style.cssText = 'width:100%;height:70px;background:var(--bg-raise);border:1px solid var(--border-soft);border-radius:4px;margin-top:4px;cursor:crosshair';
+  cv.style.cssText = 'width:100%;height:70px;background:var(--bg);border-radius:6px;margin-top:4px;cursor:crosshair';
   container.appendChild(cv);
   const ctx = cv.getContext('2d');
 
@@ -566,7 +586,7 @@ export function renderSpeedGraphCanvas(container, clip, onUpdate) {
     ctx.clearRect(0, 0, cv.width, cv.height);
     // Grid line for 1.0x normal speed
     const y1 = toY(1.0);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.strokeStyle = 'rgba(112, 107, 87, 0.2)';
     ctx.setLineDash([2, 2]);
     ctx.beginPath(); ctx.moveTo(pad, y1); ctx.lineTo(pad + W, y1); ctx.stroke();
     ctx.setLineDash([]);
@@ -584,8 +604,8 @@ export function renderSpeedGraphCanvas(container, clip, onUpdate) {
     // Handles
     for (let j = 0; j < pts.length; j++) {
       const px = toX(pts[j].t), py = toY(pts[j].v);
-      ctx.fillStyle = '#f59e0b';
-      ctx.strokeStyle = '#000';
+      ctx.fillStyle = '#1f6feb';
+      ctx.strokeStyle = '#fff';
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     }

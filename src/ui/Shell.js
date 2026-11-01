@@ -55,7 +55,7 @@ export function initShell() {
     $('tlDock').style.height = `${h}px`; LS.set('panel.tlH', h);
     dispatchEvent(new Event('resize')); // timeline canvas re-layouts on resize
   });
-  $('railWrap').style.width = `${LS.get('panel.leftW', 272)}px`;
+  $('railWrap').style.width = `${LS.get('panel.leftW', 256)}px`;
   $('rightCol').style.width = `${LS.get('panel.rightW', 300)}px`;
   $('tlDock').style.height = `${LS.get('panel.tlH', 176)}px`;
 
