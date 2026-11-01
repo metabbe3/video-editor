@@ -159,6 +159,7 @@ export class App {
     } catch {}
     $('platform').value = p.platform;
     $('orient').value = p.orientation;
+    $('orientHdr').value = p.orientation;
     $('resSel').value = String(p.resolution);
     $('fpsSel').value = String(p.fps);
     $('capMode').value = p.captionsMode === 'off' ? 'off' : 'word-pop';
@@ -299,12 +300,12 @@ export class App {
     on('exportBtn', 'click', () => this.export());
     on('playBtn', 'click', () => this.togglePlay());
     on('settingsBtn', 'click', () => this.shell.show('settings'));
-    // Header declutter: toggle Ask AI + aspect ratio group (hidden by default)
-    on('moreBtn', 'click', () => {
-      const ex = $('headerExtras');
-      ex.hidden = !ex.hidden;
-      $('moreBtn').style.background = ex.hidden ? '' : 'var(--accent)';
-      $('moreBtn').style.color = ex.hidden ? '' : '#fff';
+    // Header aspect dropdown → mirror ke settings panel + apply
+    on('orientHdr', 'change', () => {
+      this.project.settings.orientation = $('orientHdr').value;
+      LS.set('orient', $('orientHdr').value);
+      $('orient').value = $('orientHdr').value;
+      if (this.project.edl) { this.rebuild(); this.syncFrame(); }
     });
     on('copyChaptersBtn', 'click', () => this.copyChapters());
     on('modeChip', 'click', () => {
@@ -665,6 +666,7 @@ export class App {
         const map = { resolution: Number, fps: Number };
         this.project.settings[key] = map[key] ? map[key]($(id).value) : $(id).value;
         LS.set(key, $(id).value);
+        if (id === 'orient') $('orientHdr').value = $(id).value; // keep header dropdown in sync
         if (this.project.edl) { this.rebuild(); this.syncFrame(); }
       });
     }
@@ -1124,8 +1126,8 @@ export class App {
     const key = $('glmKey').value.trim();
     if (!key) { this.shell.show('settings'); return this.toast('Enter a GLM API key in Settings.'); }
     LS.set('glm.key', key);
-    const ask = isAsk ? $('askInput').value.trim() : '';
-    if (isAsk) $('askInput').value = '';
+    const ask = isAsk ? ($('askInput')?.value.trim() ?? '') : '';
+    if (isAsk && $('askInput')) $('askInput').value = '';
     this.setBusy(true);
     try {
       const t0 = performance.now();

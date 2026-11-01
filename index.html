@@ -370,22 +370,17 @@
   <h1 style="display:flex;align-items:center;gap:8px"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M2 2h5v2H4v3H2V2z" fill="var(--accent)"/><path d="M16 16h-5v-2h3v-3h2v5z" fill="var(--accent)"/><path d="M11 2h5v5h-2V4h-3V2z" fill="var(--accent)" opacity="0.35"/><path d="M7 16H2v-5h2v3h3v2z" fill="var(--accent)" opacity="0.35"/></svg>Nila</h1>
   <span id="status">Drop a folder to begin</span>
   <span class="spacer"></span>
-  <span style="display:flex;gap:6px;align-items:center" id="headerExtras" hidden>
-    <input type="text" id="askInput" placeholder="Ask the editor…  e.g. make it 15 seconds, cut the intro, keep the demo" style="width:360px">
-    <button class="tbtn" id="askBtn" disabled title="send to GLM with the current cut + feedback history">Ask AI</button>
-    <span style="display:flex;gap:2px" id="aspectSeg">
-      <button class="tbtn" data-orient="9:16" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">9:16</button>
-      <button class="tbtn" data-orient="16:9" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">16:9</button>
-      <button class="tbtn" data-orient="1:1" style="width:auto;padding:3px 8px;font-size:var(--fs-small)">1:1</button>
-    </span>
-  </span>
-  <button class="tbtn" id="moreBtn" title="Show / hide aspect ratio &amp; Ask AI bar">⋯</button>
+  <select id="orientHdr" title="Aspect ratio" onchange="void 0" style="font-size:var(--fs-small);background:var(--bg-raise);color:var(--ink);border:none;border-radius:6px;padding:4px 6px;cursor:pointer">
+    <option value="9:16">9:16</option>
+    <option value="16:9">16:9</option>
+    <option value="1:1">1:1</option>
+  </select>
   <span id="durChip" style="font-size:var(--fs-mono);color:var(--ink-2);font-variant-numeric:tabular-nums"></span>
   <span class="chip" id="debateChip" title="editorial council debate log" hidden>🧠 Council ▾</span>
-  <span class="chip" id="modeChip" title="current edit source — click to switch">local</span>
+  <span class="chip" id="modeChip" title="current edit source — click to switch" hidden>local</span>
   <button class="tbtn icon" id="chatToggleBtn" title="Nila Chat (⌘K)">💬</button>
   <button class="tbtn" id="settingsBtn" title="Settings">Settings</button>
-  <button class="tbtn primary" id="exportBtn" disabled>Export MP4</button>
+  <button class="tbtn primary" id="exportBtn" disabled title="Export MP4">↗</button>
 </header>
 
 <div id="restoreBanner" hidden style="background:var(--bg-raise);border-bottom:1px solid var(--accent);padding:7px 16px;display:flex;align-items:center;gap:12px;font-size:var(--fs-ui);color:var(--ink);flex:none">
