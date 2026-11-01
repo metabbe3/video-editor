@@ -34,6 +34,13 @@ import { renderSfx, SFX_PRESETS } from './core/AudioMix.js';
 import { captionsOf } from './core/Compositor.js';
 import { saveProject, loadProject, makeProjectKey, serializeProjectState, applyProjectSnapshot } from '../engine/project-store.js';
 import { PLATFORM_EXPORT_PRESETS, normalizeCropRect } from '../engine/clip-ops.js';
+import {
+  generateProposals, proposalSummary, proposalsToKeeps,
+  toggleProposalStatus, acceptAllProposals, rejectAllProposals,
+} from '../engine/proposals.js';
+import { runDebateCouncil } from '../engine/council-vote.js';
+import { parseChatCommand, applyChatOp } from '../engine/chat-ops.js';
+import { calibrateThreshold, FILLER_RE } from '../engine/edit-engine.js';
 
 const $ = (id) => document.getElementById(id);
 const LS = { get: (k, d) => localStorage.getItem(k) ?? d, set: (k, v) => localStorage.setItem(k, v) };
@@ -61,6 +68,9 @@ export class App {
     this.pendingRestoreSnapshot = null;
     this.faceTimer = 0;
     this._saveTimer = 0;
+    this.contextTargetWords = [];
+    this.pendingChatOp = null;
+    this.pendingChatQuery = '';
     this.tlv = createTimelineView($('timeline'), this.timelineHost());
     this.shell = initShell();
     this.wire();
@@ -71,6 +81,7 @@ export class App {
     const app = this;
     return {
       getEdl: () => this.project.edl,
+      getProposals: () => (this.project.proposalsApplied ? [] : (this.project.proposals || [])),
       getEnergy: () => this.project.analysis,
       seekTo: (t) => { this.preview.seekTo(t); this.drawAll(t); },
       trimSeg: (i, edge, t) => this.trimSegment(i, edge, t),
@@ -164,6 +175,30 @@ export class App {
     on('restoreBtn', 'click', () => this.restoreLastEdit());
     on('dismissRestoreBtn', 'click', () => this.hideRestoreBanner());
     on('voBtn', 'click', () => this.toggleVoiceover());
+
+    // Proposal bar actions
+    on('applyAllPropsBtn', 'click', () => this.applyAllProposals());
+    on('debatePropsBtn', 'click', () => this.debateProposals());
+    on('dismissAllPropsBtn', 'click', () => this.dismissAllProposals());
+
+    // Context menu actions
+    document.querySelectorAll('#transcriptContextMenu .ctx-item').forEach((b) => {
+      b.onclick = () => this.handleContextAction(b.dataset.action);
+    });
+
+    // Inline chat box actions
+    on('inlineChatForm', 'submit', (e) => this.submitInlineChat(e));
+    on('applyChatOpBtn', 'click', () => this.applyChatOperation());
+    on('revertChatOpBtn', 'click', () => this.revertChatOperation());
+    on('closeChatBtn', 'click', () => this.closeInlineChat());
+
+    // Click outside to dismiss context menu / inline chat
+    document.addEventListener('pointerdown', (e) => {
+      if (!e.target.closest('#transcriptContextMenu')) this.closeContextMenu();
+      if (!e.target.closest('#inlineChatBox') && !e.target.closest('#transcriptContextMenu')) {
+        this.closeInlineChat();
+      }
+    });
 
     // Color adjust sliders (Global polish / Looks)
     const updateAdj = (key, val, labelId) => {
@@ -546,6 +581,8 @@ export class App {
       if (e.code === 'KeyS' && !e.metaKey && !e.ctrlKey) this.splitAt(t);
       if (e.code === 'KeyD' && !e.metaKey && !e.ctrlKey) this.duplicateClip(this.selectedClipIndex ?? tl.segmentAt(t));
       if (e.code === 'Escape') {
+        this.closeContextMenu();
+        this.closeInlineChat();
         if (this.razor) { this.razor = false; $('razorChip').classList.remove('on'); $('timeline').style.cursor = ''; }
         this.selectClip(null);
       }
@@ -652,15 +689,12 @@ export class App {
       });
       p.words = fixPhonetics(freezeWords(words));
       if (!p.words.length) throw new Error('No speech found.');
-      if (language) this.status(`Language: ${langName(language)} — building edit…`);
-      p.computeBaseKeeps();
+      if (language) this.status(`Language: ${langName(language)} — generating cut proposals…`);
+      p.computeProposals();
       p.useGlm = false; p.glmResult = null; p.variants = null; p.activeVariant = 0;
       this.rebuild();
-      if ($('glmKey').value.trim() && !opts.skipAutoRefine) {
-        try { await this.agent.refine({ onStatus: (s) => this.status(s), getPrompt: () => $('glmPrompt').value }); this.rebuild(); }
-        catch (e) { this.toast(`GLM refine skipped: ${e.message}`, 3600); }
-      } else this.toast('Add a GLM key in Settings for AI-chosen cuts.');
-      this.status(`Ready · ${p.words.length} words · ${this.keptSec().toFixed(1)}s · ${p.useGlm ? 'GLM' : 'local'}`);
+      this.renderProposalBar();
+      this.status(`Ready · ${p.words.length} words · ${p.proposals?.length || 0} cuts proposed`);
       this.playNow();
     } catch (e) {
       console.error(e);
@@ -680,6 +714,7 @@ export class App {
     this.preview.setEdl(p.edl, { keepTime: prevT > 0.02 });
     this.tlv.fit();
     this.renderTranscript();
+    this.renderProposalBar();
     this.renderVariants();
     this.renderChapters();
     this.renderScore();
@@ -756,6 +791,7 @@ export class App {
     applyProjectSnapshot(p, snap);
     if (p.reg?.arollId && p.edl) p.edl.style.arollId = p.reg.arollId;
     this.rebuild();
+    this.renderProposalBar();
     if (!isAuto) {
       this.hideRestoreBanner();
       this.toast('Restored last edit');
@@ -991,28 +1027,419 @@ export class App {
   wordKept(w) {
     return this.project.edl?.keep.some((k) => w.start >= k.in - 0.01 && w.start < k.out);
   }
+
+  wordProposal(w) {
+    const p = this.project;
+    if (!p.proposals || p.proposalsApplied) return null;
+    return p.proposals.find((pr) => pr.wordIndices?.includes(w.i));
+  }
+
+  wordCutReason(w) {
+    const p = this.project;
+    if (this.wordKept(w)) return null;
+    const ov = p.activeOverrides;
+    if (ov.cuts.includes(w.i)) return 'manual';
+    if (FILLER_RE.test(w.w)) return `filler "${w.w}"`;
+    const prop = p.proposals?.find((pr) => pr.wordIndices?.includes(w.i));
+    if (prop) return prop.why;
+    return 'pause';
+  }
+
+  renderProposalBar() {
+    const p = this.project;
+    const bar = $('proposalBar');
+    const info = $('proposalInfo');
+    const debateBar = $('debateSummaryBar');
+    if (!bar || !info) return;
+
+    if (!p.proposals || !p.proposals.length || p.proposalsApplied) {
+      bar.style.display = 'none';
+      if (debateBar) debateBar.style.display = 'none';
+      return;
+    }
+
+    const sum = proposalSummary(p.proposals, p.analysis?.duration || 1);
+    info.textContent = sum.text;
+    bar.style.display = 'flex';
+
+    if (p.debateSummary?.text && debateBar) {
+      debateBar.textContent = `⚖ Council: ${p.debateSummary.text}`;
+      debateBar.style.display = 'block';
+    } else if (debateBar) {
+      debateBar.style.display = 'none';
+    }
+  }
+
+  applyAllProposals() {
+    const p = this.project;
+    if (!p.proposals?.length) return;
+    this.pushUndo();
+    for (const prop of p.proposals) {
+      if (prop.status !== 'rejected') prop.status = 'accepted';
+    }
+    p.applyProposals();
+    this.rebuild();
+    this.renderProposalBar();
+    this.toast(`Applied cuts (${this.keptSec().toFixed(1)}s kept)`);
+  }
+
+  async debateProposals() {
+    const p = this.project;
+    if (!p.proposals?.length) return;
+    this.setBusy(true);
+    this.status('Council debating borderline proposals…');
+    try {
+      const glmKey = $('glmKey')?.value.trim();
+      const glmClient = glmKey ? { apiKey: glmKey, baseUrl: $('glmEndpoint')?.value, model: $('glmModel')?.value } : null;
+      const { summary } = await runDebateCouncil(p.proposals, {
+        words: p.words,
+        energy: p.analysis?.energy,
+        hopSec: p.analysis?.hopSec,
+        thresholdDb: p.analysis?.energy ? calibrateThreshold(p.analysis.energy) : -35,
+      }, { glmClient });
+      p.debateSummary = summary;
+      this.renderProposalBar();
+      this.renderTranscript();
+      this.drawAll(-2);
+      this.toast('Council debate finished');
+      this.status(`Debate finished · ${summary.text}`);
+    } catch (err) {
+      console.error(err);
+      this.toast(`Debate failed: ${err.message}`);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+
+  dismissAllProposals() {
+    const p = this.project;
+    if (!p.proposals?.length) return;
+    this.pushUndo();
+    rejectAllProposals(p.proposals);
+    p.proposalsApplied = true;
+    p.baseKeeps = [{ in: 0, out: p.analysis.duration, why: 'speech' }];
+    this.rebuild();
+    this.renderProposalBar();
+    this.toast('All proposed cuts dismissed');
+  }
+
   renderTranscript() {
     const p = this.project;
     const el = $('transcript');
     el.textContent = '';
-    $('wordDetail').textContent = p.words ? 'click: cut/keep · dblclick: sentence · right-click: fix' : 'word-level timings appear after Analyze';
+    $('wordDetail').textContent = p.words ? 'click: cut/keep/toggle · dblclick: sentence · right-click: options' : 'word-level timings appear after Analyze';
     if (!p.words) return;
     const fmt = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(3).padStart(6, '0')}`; };
     const frag = document.createDocumentFragment();
     let clickTimer = 0;
-    for (const w of p.words) {
+
+    const inProposalPhase = !p.proposalsApplied && p.proposals && p.proposals.length > 0;
+
+    const pausePropsAfter = new Map();
+    if (inProposalPhase) {
+      for (const prop of p.proposals) {
+        if (prop.kind === 'pause' || prop.kind === 'gap') {
+          let afterIdx = prop.afterWord;
+          if (afterIdx == null) {
+            for (let i = p.words.length - 1; i >= 0; i--) {
+              if (p.words[i].end <= prop.start + 0.05) { afterIdx = i; break; }
+            }
+          }
+          if (afterIdx != null && afterIdx >= 0) {
+            if (!pausePropsAfter.has(afterIdx)) pausePropsAfter.set(afterIdx, []);
+            pausePropsAfter.get(afterIdx).push(prop);
+          }
+        }
+      }
+    }
+
+    for (let i = 0; i < p.words.length; i++) {
+      const w = p.words[i];
       const sp = document.createElement('span');
       sp.className = 'w';
       sp.textContent = w.w;
-      if (!this.wordKept(w)) sp.classList.add('cut');
-      sp.onmouseenter = () => { $('wordDetail').textContent = `“${w.w}” · ${fmt(w.start)} → ${fmt(w.end)} · ${Math.round((w.end - w.start) * 1000)} ms · ${this.wordKept(w) ? 'kept' : 'cut'}`; };
-      sp.onclick = () => { clearTimeout(clickTimer); clickTimer = setTimeout(() => this.toggleWord(w.i, [w.i]), 220); };
+      sp.dataset.idx = String(w.i);
+
+      const prop = this.wordProposal(w);
+      const isKept = this.wordKept(w);
+
+      if (inProposalPhase && prop) {
+        if (prop.status === 'accepted' || prop.status === 'pending') {
+          sp.classList.add('proposed', prop.status);
+          const durMs = Math.round(prop.duration * 1000);
+          sp.title = `Proposed cut: ${prop.why} (${prop.status}) · ${durMs}ms`;
+        } else if (prop.status === 'rejected') {
+          sp.classList.add('kept-by-debate');
+          sp.title = prop.keptReason || 'kept: jeda dramatis (Storyteller)';
+        }
+      } else {
+        if (!isKept) {
+          sp.classList.add('cut');
+          const reason = this.wordCutReason(w);
+          sp.title = `Cut: ${reason}`;
+        } else {
+          const debProp = p.proposals?.find((pr) => pr.wordIndices?.includes(w.i) && pr.status === 'rejected');
+          if (debProp) {
+            sp.classList.add('kept-by-debate');
+            sp.title = debProp.keptReason || 'kept: jeda dramatis (Storyteller)';
+          }
+        }
+      }
+
+      sp.onmouseenter = () => {
+        const ms = Math.round((w.end - w.start) * 1000);
+        if (inProposalPhase && prop) {
+          $('wordDetail').textContent = `“${w.w}” · ${fmt(w.start)} → ${fmt(w.end)} · ${ms}ms · proposed: ${prop.why} [${prop.status}]`;
+        } else if (!isKept) {
+          $('wordDetail').textContent = `“${w.w}” · ${fmt(w.start)} → ${fmt(w.end)} · ${ms}ms · cut: ${this.wordCutReason(w)}`;
+        } else {
+          const debProp = p.proposals?.find((pr) => pr.wordIndices?.includes(w.i) && pr.status === 'rejected');
+          const keptInfo = debProp?.keptReason ? ` · ${debProp.keptReason}` : '';
+          $('wordDetail').textContent = `“${w.w}” · ${fmt(w.start)} → ${fmt(w.end)} · ${ms}ms · kept${keptInfo}`;
+        }
+      };
+
+      sp.onclick = () => {
+        clearTimeout(clickTimer);
+        clickTimer = setTimeout(() => {
+          if (inProposalPhase && prop) {
+            toggleProposalStatus(p.proposals, prop.id);
+            this.renderTranscript();
+            this.renderProposalBar();
+            this.drawAll(-2);
+            this.toast(prop.status === 'accepted' ? 'Cut proposal accepted' : 'Proposal rejected (kept)');
+          } else {
+            this.toggleWord(w.i, [w.i]);
+          }
+        }, 220);
+      };
+
       sp.ondblclick = () => { clearTimeout(clickTimer); this.toggleSentence(w.i); };
-      sp.oncontextmenu = (e) => { e.preventDefault(); this.editWord(sp, w.i); };
+      sp.oncontextmenu = (e) => {
+        e.preventDefault();
+        this.openTranscriptContextMenu(e, w);
+      };
+
       frag.append(sp, document.createTextNode(' '));
+
+      if (pausePropsAfter.has(i)) {
+        for (const pauseProp of pausePropsAfter.get(i)) {
+          const chip = document.createElement('span');
+          chip.className = `w proposed pause-chip ${pauseProp.status}`;
+          chip.textContent = `⏸ ${pauseProp.duration}s`;
+          chip.title = `${pauseProp.why} (${pauseProp.status}) · click to ${pauseProp.status === 'accepted' ? 'reject' : 'accept'}`;
+          chip.onclick = (e) => {
+            e.stopPropagation();
+            toggleProposalStatus(p.proposals, pauseProp.id);
+            this.renderTranscript();
+            this.renderProposalBar();
+            this.drawAll(-2);
+            this.toast(pauseProp.status === 'accepted' ? 'Pause cut accepted' : 'Pause cut rejected (kept)');
+          };
+          frag.append(chip, document.createTextNode(' '));
+        }
+      }
     }
     el.appendChild(frag);
     this.renderTakeStacks(el);
+  }
+
+  openTranscriptContextMenu(e, clickedWord) {
+    const sel = window.getSelection();
+    let selectedWords = [clickedWord];
+    if (sel && !sel.isCollapsed) {
+      const selectedSpans = $('transcript').querySelectorAll('.w');
+      const inRange = [];
+      for (const sp of selectedSpans) {
+        if (sel.containsNode(sp, true) && sp.dataset.idx != null) {
+          const idx = Number(sp.dataset.idx);
+          if (this.project.words[idx]) inRange.push(this.project.words[idx]);
+        }
+      }
+      if (inRange.length > 0) selectedWords = inRange;
+    }
+    this.contextTargetWords = selectedWords;
+
+    const menu = $('transcriptContextMenu');
+    if (!menu) return;
+    menu.style.display = 'block';
+    menu.style.left = `${Math.min(window.innerWidth - 170, e.clientX)}px`;
+    menu.style.top = `${Math.min(window.innerHeight - 150, e.clientY)}px`;
+  }
+
+  closeContextMenu() {
+    const menu = $('transcriptContextMenu');
+    if (menu) menu.style.display = 'none';
+  }
+
+  handleContextAction(action) {
+    this.closeContextMenu();
+    const words = this.contextTargetWords;
+    if (!words || !words.length) return;
+    const indices = words.map((w) => w.i);
+
+    switch (action) {
+      case 'cut':
+        this.pushUndo();
+        for (const i of indices) {
+          this.project.activeOverrides.keeps = this.project.activeOverrides.keeps.filter((x) => x !== i);
+          if (!this.project.activeOverrides.cuts.includes(i)) this.project.activeOverrides.cuts.push(i);
+        }
+        this.rebuild();
+        this.toast(`Cut ${words.length} word${words.length > 1 ? 's' : ''}`);
+        break;
+
+      case 'keep':
+        this.pushUndo();
+        for (const i of indices) {
+          this.project.activeOverrides.cuts = this.project.activeOverrides.cuts.filter((x) => x !== i);
+          if (!this.project.activeOverrides.keeps.includes(i)) this.project.activeOverrides.keeps.push(i);
+        }
+        this.rebuild();
+        this.toast(`Kept ${words.length} word${words.length > 1 ? 's' : ''}`);
+        break;
+
+      case 'ask-ai':
+        this.openInlineChat(words);
+        break;
+
+      case 'punch':
+        if (!this.project.edl) return;
+        this.pushUndo();
+        const w0 = words[0];
+        const punchAt = (w0.start + w0.end) / 2;
+        this.project.edl.punches = this.project.edl.punches || [];
+        this.project.edl.punches.push({ at: punchAt, scale: 1.15, ms: 400, kind: 'emphasis' });
+        this.project.edl.punches.sort((a, b) => a.at - b.at);
+        this.refreshDerived();
+        this.toast(`Zoom punch added on "${w0.w}"`);
+        break;
+    }
+  }
+
+  openInlineChat(words) {
+    const box = $('inlineChatBox');
+    if (!box) return;
+    this.chatWords = words;
+    this.clearChatDiff();
+    this.renderChatHistory();
+
+    const menu = $('transcriptContextMenu');
+    const x = parseInt(menu?.style.left || '100', 10);
+    const y = parseInt(menu?.style.top || '100', 10);
+    box.style.left = `${Math.min(window.innerWidth - 340, Math.max(10, x))}px`;
+    box.style.top = `${Math.min(window.innerHeight - 280, Math.max(10, y))}px`;
+    box.style.display = 'block';
+
+    const input = $('inlineChatInput');
+    if (input) {
+      input.value = '';
+      setTimeout(() => input.focus(), 50);
+    }
+  }
+
+  closeInlineChat() {
+    const box = $('inlineChatBox');
+    if (box) box.style.display = 'none';
+    this.clearChatDiff();
+  }
+
+  clearChatDiff() {
+    this.pendingChatOp = null;
+    const card = $('chatDiffCard');
+    if (card) card.style.display = 'none';
+    const transcript = $('transcript');
+    if (transcript) {
+      transcript.querySelectorAll('.chat-diff-highlight').forEach((el) => el.classList.remove('chat-diff-highlight'));
+    }
+  }
+
+  renderChatHistory() {
+    const el = $('chatHistory');
+    if (!el) return;
+    el.innerHTML = '';
+    const history = this.project.chatHistory || [];
+    if (!history.length) {
+      const hint = document.createElement('div');
+      hint.style.cssText = 'color:var(--ink-2);font-style:italic';
+      hint.textContent = 'Ask AI to modify cuts, pauses, or punches for selected words.';
+      el.appendChild(hint);
+      return;
+    }
+    for (const h of history.slice(-5)) {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:3px 6px;border-radius:4px;background:var(--bg-raise)';
+      row.innerHTML = `<span style="font-weight:600;color:var(--accent)">You:</span> ${h.text} <span style="color:var(--ink-2);font-size:10px">(${h.applied ? 'applied' : 'reverted'})</span>`;
+      el.appendChild(row);
+    }
+  }
+
+  async submitInlineChat(e) {
+    if (e) e.preventDefault();
+    const input = $('inlineChatInput');
+    const q = input?.value.trim();
+    if (!q) return;
+
+    const op = parseChatCommand(q, {
+      selectedWords: this.chatWords || [],
+      allWords: this.project.words || [],
+      currentEdl: this.project.edl,
+      playheadSrc: this.preview.editedTime(),
+    });
+
+    this.pendingChatOp = { ...op, query: q };
+    this.pendingChatQuery = q;
+
+    const card = $('chatDiffCard');
+    const label = $('chatDiffLabel');
+    const expl = $('chatDiffExpl');
+    if (card && label && expl) {
+      label.textContent = op.label;
+      expl.textContent = op.explanation;
+      card.style.display = 'block';
+    }
+
+    const transcript = $('transcript');
+    if (transcript && op.wordIndices?.length) {
+      for (const idx of op.wordIndices) {
+        const span = transcript.querySelector(`.w[data-idx="${idx}"]`);
+        if (span) span.classList.add('chat-diff-highlight');
+      }
+    }
+  }
+
+  applyChatOperation() {
+    if (!this.pendingChatOp) return;
+    this.pushUndo();
+    const changed = applyChatOp(this.project, this.pendingChatOp);
+    this.project.chatHistory.push({
+      role: 'user',
+      text: this.pendingChatQuery || this.pendingChatOp.label,
+      op: this.pendingChatOp,
+      applied: true,
+      at: Date.now(),
+    });
+    this.clearChatDiff();
+    if (changed) this.rebuild();
+    this.renderChatHistory();
+    this.toast(`Applied: ${this.pendingChatOp.label}`);
+    $('inlineChatInput').value = '';
+  }
+
+  revertChatOperation() {
+    if (this.pendingChatOp) {
+      this.project.chatHistory.push({
+        role: 'user',
+        text: this.pendingChatQuery || this.pendingChatOp.label,
+        op: this.pendingChatOp,
+        applied: false,
+        at: Date.now(),
+      });
+    }
+    this.clearChatDiff();
+    this.renderChatHistory();
+    this.toast('Diff reverted');
+    $('inlineChatInput').value = '';
   }
   toggleSentence(i) {
     const p = this.project;

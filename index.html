@@ -151,6 +151,15 @@
   #transcript .w.cur { background: var(--accent); color: #fff; }
   #transcript .w.cur.cut { background: var(--ink-2); }
   #transcript .w.filler { border-bottom: 1px dotted var(--accent); }
+  #transcript .w.proposed { text-decoration: line-through dotted; text-decoration-color: rgba(31, 111, 235, 0.65); text-decoration-thickness: 1.5px; color: var(--ink-2); opacity: 0.75; }
+  #transcript .w.proposed.accepted { text-decoration-color: var(--accent); opacity: 0.85; }
+  #transcript .w.proposed.pending { text-decoration-color: rgba(31, 111, 235, 0.45); opacity: 0.65; }
+  #transcript .w.kept-by-debate { text-decoration: none; border-bottom: 1px dotted rgba(31, 111, 235, 0.35); }
+  #transcript .w.chat-diff-highlight { background: rgba(255, 215, 0, 0.35); box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.6); border-radius: 3px; }
+  .context-menu .ctx-item { width: 100%; text-align: left; background: none; border: none; padding: 6px 12px; cursor: pointer; color: var(--ink); font-size: 12px; display: block; }
+  .context-menu .ctx-item:hover { background: var(--bg-raise); color: var(--accent); }
+  .pause-chip { font-family: var(--mono); font-size: 11px; padding: 1px 4px; border-radius: 3px; background: rgba(31, 111, 235, 0.08); color: var(--accent); margin: 0 2px; user-select: none; cursor: pointer; display: inline-block; }
+  .pause-chip.rejected { opacity: 0.4; text-decoration: line-through; }
   .takepill { display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:1px 8px;margin:0 2px;border-radius:999px;background:var(--bg-raise);border:1px dashed var(--border);cursor:pointer;color:var(--ink-2); }
   .takepill.open { border-style:solid; }
   .takebody { display:none; margin:2px 0 6px; padding:4px 8px; border-left:2px solid var(--border); font-size:12px; }
@@ -284,7 +293,7 @@
               <option value="french">French</option>
               <option value="german">German</option>
             </select>
-            <button id="analyzeBtn" style="margin-top:8px" disabled>Analyze &amp; auto-cut</button>
+            <button id="analyzeBtn" style="margin-top:8px" disabled>Analyze</button>
             <div class="progress" id="prog" hidden><div id="progBar"></div></div>
           </div>
           <div class="step" id="step3">
@@ -514,6 +523,15 @@
         <div style="padding:4px 12px;border-bottom:1px solid var(--border-soft);display:none" id="chapterBar">
           <button class="tbtn" id="copyChaptersBtn" style="width:auto;padding:2px 10px;font-size:11.5px">Copy YouTube description</button>
         </div>
+        <div id="proposalBar" style="display:none;padding:8px 12px;border-bottom:1px solid var(--border-soft);background:var(--bg-raise);font-size:12px;align-items:center;gap:8px;flex-wrap:wrap">
+          <span id="proposalInfo" style="font-weight:600;color:var(--ink);flex:1;min-width:160px"></span>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="tbtn primary" id="applyAllPropsBtn" style="width:auto;padding:3px 10px;font-size:11.5px;background:var(--accent);color:#fff">Apply all</button>
+            <button class="tbtn" id="debatePropsBtn" style="width:auto;padding:3px 10px;font-size:11.5px">Debate ⚖</button>
+            <button class="tbtn" id="dismissAllPropsBtn" style="width:auto;padding:3px 10px;font-size:11.5px">Dismiss all</button>
+          </div>
+        </div>
+        <div id="debateSummaryBar" style="display:none;padding:6px 12px;border-bottom:1px solid var(--border-soft);background:rgba(31,111,235,0.06);font-size:11.5px;color:var(--accent);font-family:var(--mono)"></div>
         <div id="transcript"></div>
         <div id="scriptView" style="display:none;padding:10px 12px;overflow-y:auto;flex:1"></div>
       </section>
@@ -537,6 +555,33 @@
     <canvas id="timeline"></canvas>
   </div>
 </main>
+
+  <div id="transcriptContextMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.18);padding:4px 0;min-width:150px;font-size:12px">
+    <button class="ctx-item" data-action="cut">✂ Cut this</button>
+    <button class="ctx-item" data-action="keep">🛡 Keep this</button>
+    <button class="ctx-item" data-action="ask-ai">💬 Ask AI about this</button>
+    <button class="ctx-item" data-action="punch">🔍 Zoom punch here</button>
+  </div>
+
+  <div id="inlineChatBox" class="inline-chat-box" style="display:none;position:fixed;z-index:1010;background:var(--bg);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.22);padding:10px;width:320px;font-size:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+      <span style="font-weight:600;color:var(--accent)">💬 Ask AI (Transcript)</span>
+      <button id="closeChatBtn" style="background:none;border:none;cursor:pointer;color:var(--ink-2);font-size:14px;padding:0 4px">✕</button>
+    </div>
+    <div id="chatHistory" style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-bottom:8px;font-size:11.5px"></div>
+    <div id="chatDiffCard" style="display:none;background:var(--bg-raise);border:1px dashed var(--accent);border-radius:6px;padding:6px 8px;margin-bottom:8px">
+      <div id="chatDiffLabel" style="font-weight:600;margin-bottom:2px"></div>
+      <div id="chatDiffExpl" style="color:var(--ink-2);font-size:11px;margin-bottom:6px"></div>
+      <div style="display:flex;gap:6px">
+        <button class="tbtn primary" id="applyChatOpBtn" style="width:auto;padding:2px 8px;font-size:11px;background:var(--accent);color:#fff">Apply</button>
+        <button class="tbtn" id="revertChatOpBtn" style="width:auto;padding:2px 8px;font-size:11px">Revert</button>
+      </div>
+    </div>
+    <form id="inlineChatForm" style="display:flex;gap:4px">
+      <input type="text" id="inlineChatInput" placeholder="e.g. jangan dipotong, kasih jeda 0.3s…" style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--border-soft);border-radius:4px;background:var(--bg-input)">
+      <button type="submit" class="tbtn primary" style="width:auto;padding:4px 10px;font-size:11.5px;background:var(--accent);color:#fff">Send</button>
+    </form>
+  </div>
 
   <div id="debatePop">
     <div id="debateBody"></div>

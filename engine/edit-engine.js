@@ -113,8 +113,140 @@ function interval(energy, a, b, hopSec) {
   for (let i = a; i <= b; i++) if (energy[i] < min) { min = energy[i]; minAt = i; }
   return { start: a * hopSec, end: (b + 1) * hopSec, minAt: minAt * hopSec };
 }
-const dbToLin = (db) => 10 ** (db / 20);
-const linToDb = (v) => 20 * Math.log10(Math.max(v, 1e-12));
+export const dbToLin = (db) => 10 ** (db / 20);
+export const linToDb = (v) => 20 * Math.log10(Math.max(v, 1e-12));
+
+const PLOSIVE_RE = /^[ptkbdg]/i;
+
+/** Adaptive pad calculation per word based on neighboring gaps and phonetics */
+export function adaptivePads(word, prevWord = null, nextWord = null) {
+  const gapPrev = prevWord && Number.isFinite(prevWord.end) ? Math.max(0, (word?.start ?? 0) - prevWord.end) : 0.5;
+  const gapNext = nextWord && Number.isFinite(nextWord.start) ? Math.max(0, nextWord.start - (word?.end ?? 0)) : 0.5;
+  let padLead = Math.min(0.12, Math.max(0.04, gapPrev * 0.25));
+  let padTail = Math.min(0.18, Math.max(0.06, gapNext * 0.25));
+
+  // Plosive (/p|t|k|b|d|g/ at word onset) -> minimum 80ms silence before burst
+  const cleanWord = String(word?.w ?? '').replace(/^[^a-zA-Z]+/, '');
+  if (PLOSIVE_RE.test(cleanWord)) {
+    padLead = Math.max(padLead, 0.08);
+  }
+  return { padLead, padTail };
+}
+
+/**
+ * Voice-activity guard: avoids placing a cut boundary inside a sustained
+ * high-energy voicing plateau (> threshold * 0.5 for > 80ms across the boundary).
+ * Shifts the boundary to the edge of the voiced segment.
+ */
+export function voiceActivityGuard(t, energy, hopSec, threshold = 0.02, mode = 'in') {
+  if (!energy || !energy.length || hopSec <= 0) return t;
+  const linThresh = threshold < 0 ? dbToLin(threshold) : (threshold ?? 0.02);
+  const voiceThresh = linThresh * 0.5;
+  const minDurationHops = Math.ceil(0.08 / hopSec); // > 80ms sustained
+
+  const idx = Math.max(0, Math.min(energy.length - 1, Math.round(t / hopSec)));
+  if (energy[idx] <= voiceThresh) return t; // not inside high energy segment
+
+  // Find contiguous segment around idx where energy > voiceThresh
+  let left = idx;
+  while (left > 0 && energy[left - 1] > voiceThresh) left--;
+  let right = idx;
+  while (right < energy.length - 1 && energy[right + 1] > voiceThresh) right++;
+
+  const segmentHops = right - left + 1;
+  if (segmentHops >= minDurationHops) {
+    if (mode === 'in') {
+      return Math.max(0, left * hopSec);
+    } else if (mode === 'out') {
+      return Math.min(energy.length * hopSec, (right + 1) * hopSec);
+    } else {
+      const distL = idx - left;
+      const distR = right - idx;
+      return (distL <= distR ? left : right + 1) * hopSec;
+    }
+  }
+  return t;
+}
+
+/**
+ * Asymmetric energy snap:
+ * - cut-IN: snaps to energy rising edge (attack) after the local minimum
+ * - cut-OUT: snaps to energy falling edge (release)
+ * Includes Whisper drift guard against wordBoundary and voice activity guard.
+ */
+export function snapAsymmetricBoundary(t, energy, hopSec, {
+  mode = 'in',
+  wordBoundary = null,
+  threshold = 0.02,
+  window = TUNING.snapWindow,
+} = {}) {
+  if (!energy || !energy.length || hopSec <= 0) return t;
+
+  const guarded = voiceActivityGuard(t, energy, hopSec, threshold, mode);
+  if (guarded !== t) return guarded;
+
+  const c = Math.round(t / hopSec);
+  const r = Math.round(window / hopSec);
+  const startIdx = Math.max(0, c - r);
+  const endIdx = Math.min(energy.length - 1, c + r);
+  const linThresh = threshold < 0 ? dbToLin(threshold) : (threshold ?? 0.02);
+
+  let bestIdx = c;
+  if (mode === 'in') {
+    let minIdx = startIdx, minVal = Infinity;
+    for (let i = startIdx; i <= endIdx; i++) {
+      if (energy[i] < minVal) { minVal = energy[i]; minIdx = i; }
+    }
+    const riseThresh = minVal + 0.15 * Math.max(1e-4, linThresh * 0.5 - minVal);
+    let edgeIdx = minIdx;
+    for (let i = minIdx; i <= endIdx; i++) {
+      if (energy[i] > riseThresh && i > minIdx) {
+        edgeIdx = i;
+        break;
+      }
+    }
+    bestIdx = edgeIdx;
+  } else {
+    let minIdx = endIdx, minVal = Infinity;
+    for (let i = endIdx; i >= startIdx; i--) {
+      if (energy[i] < minVal) { minVal = energy[i]; minIdx = i; }
+    }
+    const fallThresh = minVal + 0.15 * Math.max(1e-4, linThresh * 0.5 - minVal);
+    let edgeIdx = minIdx;
+    for (let i = minIdx; i >= startIdx; i--) {
+      if (energy[i] > fallThresh && i < minIdx) {
+        edgeIdx = i + 1;
+        break;
+      }
+    }
+    bestIdx = edgeIdx;
+  }
+
+  let snapResult = bestIdx * hopSec;
+
+  if (wordBoundary != null && Math.abs(snapResult - wordBoundary) > 0.06) {
+    const wbIdx = Math.max(0, Math.min(energy.length - 1, Math.round(wordBoundary / hopSec)));
+    const wbR = Math.round(0.04 / hopSec);
+    let wbMinVal = Infinity;
+    for (let i = Math.max(0, wbIdx - wbR); i <= Math.min(energy.length - 1, wbIdx + wbR); i++) {
+      if (energy[i] < wbMinVal) wbMinVal = energy[i];
+    }
+    const snapVal = energy[bestIdx] ?? Infinity;
+    if (wbMinVal < linThresh || wbMinVal <= snapVal * 2.5) {
+      snapResult = wordBoundary;
+    }
+  }
+
+  return snapResult;
+}
+
+export function snapCutIn(t, energy, hopSec, opts = {}) {
+  return snapAsymmetricBoundary(t, energy, hopSec, { ...opts, mode: 'in' });
+}
+
+export function snapCutOut(t, energy, hopSec, opts = {}) {
+  return snapAsymmetricBoundary(t, energy, hopSec, { ...opts, mode: 'out' });
+}
 
 /** Per-file calibration: midpoint between quiet (room tone) and speech levels. */
 export function calibrateThreshold(energy) {
@@ -177,12 +309,15 @@ export function heuristicKeeps(words, duration, { silence = [], energy = null, h
   }
 
   let keeps = invert(removals, duration);
-  // snap boundaries to energy minima where we have the curve
-  if (energy) keeps = keeps.map((k) => ({
-    ...k,
-    in: Math.max(0, snapToEnergyMin(k.in, energy, hopSec)),
-    out: Math.min(duration, snapToEnergyMin(k.out, energy, hopSec)),
-  }));
+  // snap boundaries using wave-aware asymmetric snapping when energy curve is available
+  if (energy) {
+    const thresh = calibrateThreshold(energy);
+    keeps = keeps.map((k) => ({
+      ...k,
+      in: Math.max(0, snapCutIn(k.in, energy, hopSec, { threshold: thresh })),
+      out: Math.min(duration, snapCutOut(k.out, energy, hopSec, { threshold: thresh })),
+    }));
+  }
   return normalizeKeeps(keeps, duration, tuning);
 }
 
@@ -246,7 +381,18 @@ export function applyGlm(response, words, duration, { energy = null, hopSec = 0.
       const [a, b] = t < f ? [t, f] : [f, t];
       let inT = words[a].start - tuning.padLead;
       let outT = words[b].end + tuning.padTrail;
-      if (energy) { inT = snapToEnergyMin(inT, energy, hopSec); outT = snapToEnergyMin(outT, energy, hopSec); }
+      if (tuning.adaptivePads) {
+        const prevWord = a > 0 ? words[a - 1] : null;
+        const nextWord = b < n - 1 ? words[b + 1] : null;
+        const pads = adaptivePads(words[a], prevWord, nextWord);
+        inT = words[a].start - pads.padLead;
+        outT = words[b].end + pads.padTail;
+      }
+      if (energy) {
+        const thresh = calibrateThreshold(energy);
+        inT = snapCutIn(inT, energy, hopSec, { wordBoundary: words[a].start, threshold: thresh });
+        outT = snapCutOut(outT, energy, hopSec, { wordBoundary: words[b].end, threshold: thresh });
+      }
       const score = Math.max(0, Math.min(100, Math.round(Number(k?.score) || 0)));
       keeps.push({ in: Math.max(0, inT), out: Math.min(duration, outT), why: `glm: ${k?.why || ''}`.trim(), words: [a, b], score });
     }

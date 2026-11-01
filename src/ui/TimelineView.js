@@ -87,6 +87,29 @@ export function createTimelineView(canvas, host) {
       ctx.fillText(fmt(t), x, rows.ruler.y + 11);
     }
 
+    // Ghost markers for proposed cuts (preview-only, hatched red strip on duration ruler)
+    const proposals = host.getProposals?.() || [];
+    if (proposals.length) {
+      for (const p of proposals) {
+        if (p.status === 'rejected') continue;
+        const px0 = xOf(tl.sourceToEdited(p.start) ?? p.start);
+        const px1 = xOf(tl.sourceToEdited(p.end) ?? p.end);
+        if (px1 < GUTTER || px0 > W) continue;
+        const markW = Math.max(3, px1 - px0);
+        const ry = rows.ruler.y + rows.ruler.h - 5;
+        ctx.fillStyle = 'rgba(235, 60, 60, 0.45)';
+        ctx.fillRect(px0, ry, markW, 4);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let hx = px0; hx <= px0 + markW; hx += 4) {
+          ctx.moveTo(hx, ry);
+          ctx.lineTo(hx + 3, ry + 4);
+        }
+        ctx.stroke();
+      }
+    }
+
     // ---- V track: segments ----
     const vRow = rows.v;
     ctx.fillStyle = raise; ctx.fillRect(0, vRow.y, W, vRow.h);

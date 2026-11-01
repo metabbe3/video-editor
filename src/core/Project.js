@@ -5,6 +5,7 @@ import {
   TUNING, freezeWords, detectSilence, calibrateThreshold, heuristicKeeps,
   planFyp, applyManualOverrides, transitionsFor,
 } from '../../engine/edit-engine.js';
+import { generateProposals, proposalsToKeeps } from '../../engine/proposals.js';
 import { buildTimeline } from '../../engine/timeline.js';
 import { DEFAULT_MANUAL } from '../../engine/reframe.js';
 import { PLATFORMS } from '../../engine/glm.js';
@@ -39,6 +40,10 @@ export class Project {
     this.analysis = null;       // { pcm, energy, hopSec, duration }
     this.words = null;          // frozen word array
     this.baseKeeps = null;
+    this.proposals = null;      // candidate cut proposals
+    this.proposalsApplied = false;
+    this.debateSummary = null;  // council debate results
+    this.chatHistory = [];      // inline AI chat messages and operations
     this.glmResult = null;      // last applyGlm result
     this.variants = null;       // GLM 1->many clips
     this.activeVariant = 0;
@@ -96,7 +101,14 @@ export class Project {
   /** (re)build the EDL from the active source + FYP pass + manual overrides */
   buildEdl() {
     const v = this.variant;
-    const keepsSrc = v ? v.keeps : this.baseKeeps;
+    let keepsSrc = v ? v.keeps : this.baseKeeps;
+    if (!keepsSrc && this.words && this.analysis) {
+      if (this.proposals && !this.proposalsApplied) {
+        keepsSrc = [{ in: 0, out: this.analysis.duration, why: 'raw' }];
+      } else {
+        return null;
+      }
+    }
     if (!keepsSrc) return null;
     const plat = PLATFORMS[this.settings.platform] ?? PLATFORMS.shorts;
     const plan = planFyp(keepsSrc, this.words, (ks) => buildTimeline(ks, { fps: this.settings.fps }), {
@@ -141,6 +153,30 @@ export class Project {
     return this.edl;
   }
 
+  /** generate cut candidates as proposals (propose phase, not yet applied) */
+  computeProposals() {
+    if (!this.words || !this.analysis) return [];
+    const plat = PLATFORMS[this.settings.platform] ?? PLATFORMS.shorts;
+    const sil = detectSilence(this.analysis.energy, this.analysis.hopSec, calibrateThreshold(this.analysis.energy));
+    this.proposals = generateProposals(this.words, this.analysis.duration, {
+      silence: sil,
+      energy: this.analysis.energy,
+      hopSec: this.analysis.hopSec,
+      tuning: { ...TUNING, ...plat.pacing },
+    });
+    this.proposalsApplied = false;
+    return this.proposals;
+  }
+
+  /** apply accepted proposals into active baseKeeps */
+  applyProposals() {
+    if (!this.proposals || !this.analysis) return null;
+    const plat = PLATFORMS[this.settings.platform] ?? PLATFORMS.shorts;
+    this.baseKeeps = proposalsToKeeps(this.proposals, this.analysis.duration, { ...TUNING, ...plat.pacing });
+    this.proposalsApplied = true;
+    return this.baseKeeps;
+  }
+
   /** baseline heuristic cut after transcription (pacing from the platform preset) */
   computeBaseKeeps() {
     const plat = PLATFORMS[this.settings.platform] ?? PLATFORMS.shorts;
@@ -149,6 +185,7 @@ export class Project {
       energy: this.analysis.energy, hopSec: this.analysis.hopSec,
       tuning: { ...TUNING, ...plat.pacing },
     });
+    this.proposalsApplied = true;
     return this.baseKeeps;
   }
 
@@ -179,6 +216,7 @@ export class Project {
   resetEdit() {
     this.glmResult = null; this.edl = null; this.useGlm = false;
     this.variants = null; this.activeVariant = 0;
+    this.proposals = null; this.proposalsApplied = false; this.debateSummary = null;
   }
 
   resetAll() {
@@ -186,5 +224,6 @@ export class Project {
     this.resetEdit();
     this.overrides = { cuts: [], keeps: [] };
     this.overlays = [];
+    this.chatHistory = [];
   }
 }

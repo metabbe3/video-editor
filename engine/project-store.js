@@ -110,6 +110,9 @@ export function serializeProjectState(p) {
     glmResult: p.glmResult ? JSON.parse(JSON.stringify(p.glmResult)) : null,
     useGlm: !!p.useGlm,
     audioOverlays: p.edl?.audioOverlays ? JSON.parse(JSON.stringify(p.edl.audioOverlays)) : [],
+    proposals: p.proposals ? JSON.parse(JSON.stringify(p.proposals)) : null,
+    debateSummary: p.debateSummary ? JSON.parse(JSON.stringify(p.debateSummary)) : null,
+    chatHistory: p.chatHistory ? JSON.parse(JSON.stringify(p.chatHistory)) : [],
   };
 }
 
@@ -125,6 +128,9 @@ export function applyProjectSnapshot(p, snap) {
   if (snap.activeVariant != null) p.activeVariant = snap.activeVariant;
   if (snap.glmResult) p.glmResult = snap.glmResult;
   p.useGlm = !!snap.useGlm;
+  if (snap.proposals) p.proposals = snap.proposals;
+  if (snap.debateSummary) p.debateSummary = snap.debateSummary;
+  if (snap.chatHistory) p.chatHistory = snap.chatHistory;
   if (snap.edl) {
     p.edl = snap.edl;
     if (snap.audioOverlays?.length) p.edl.audioOverlays = snap.audioOverlays;
