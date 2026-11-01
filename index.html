@@ -269,6 +269,17 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; }
   }
+  .w.bleeped {
+    background: rgba(239, 68, 68, 0.22) !important;
+    color: var(--danger) !important;
+    text-decoration: line-through;
+  }
+  .w.bleeped::after {
+    content: ' 🔇';
+    font-size: 10px;
+    text-decoration: none;
+    display: inline-block;
+  }
 </style>
 </head>
 <body>
@@ -394,6 +405,10 @@
         </section>
 
         <section class="panel" data-panel="sticker" hidden>
+          <div id="stickerSuggestionBox" style="margin-bottom:8px" hidden>
+            <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:4px">💡 Suggested for this video:</div>
+            <div id="stickerSuggestions" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+          </div>
           <h3>Emoji — click to add at playhead</h3>
           <div class="assetgrid" id="emojiGrid"></div>
           <h3>Shapes</h3>
@@ -447,11 +462,13 @@
 
         <section class="panel" data-panel="sound" hidden>
           <h3>🎵 Music &amp; SFX</h3>
+          <button class="tbtn" id="addMusicBtn" style="width:100%;padding:5px;margin-bottom:8px">➕ Add music (mp3/wav/m4a)</button>
+          <input type="file" id="musicFileInput" accept="audio/*,.mp3,.wav,.m4a" style="display:none">
           <label>Background music</label>
           <select id="bgmSel"><option value="">None</option></select>
           <label>Volume <span id="bgmVolV">-20dB</span></label>
           <input type="range" id="bgmVol" min="-40" max="-6" value="-20" style="width:100%;accent-color:var(--accent)">
-          <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="bgmDuck" checked style="accent-color:var(--accent)"> Auto-duck under voice</label>
+          <label style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="bgmDuck" checked style="accent-color:var(--accent)"> Auto-duck under voice (-12dB)</label>
           <label style="display:flex;gap:6px;align-items:center;margin-top:4px"><input type="checkbox" id="autoSfx" style="accent-color:var(--accent)"> Whoosh SFX on cuts (export)</label>
           <h3 id="sfxLibHead" hidden>Sound library — pin at playhead</h3>
           <div id="sfxLib" class="assetgrid" hidden></div>
@@ -472,6 +489,19 @@
             <option value="pop">Kinetic Pop &amp; Tilt</option>
             <option value="clean">YouTube Clean</option>
           </select>
+          <h3 style="margin-top:10px">🌐 Auto-Translate Captions</h3>
+          <div style="display:flex;gap:4px;align-items:center;margin-bottom:4px">
+            <select id="targetLangSel" style="flex:1">
+              <option value="en">🇬🇧 English</option>
+              <option value="id">🇮🇩 Bahasa Indonesia</option>
+              <option value="es">🇪🇸 Spanish</option>
+              <option value="ja">🇯🇵 Japanese</option>
+              <option value="zh">🇨🇳 Chinese</option>
+              <option value="ko">🇰🇷 Korean</option>
+            </select>
+            <button class="tbtn primary" id="translateCaptionsBtn" style="width:auto;padding:3px 8px">Translate</button>
+          </div>
+          <button class="tbtn" id="resetTranslateBtn" style="width:auto;padding:2px 8px;font-size:11px" hidden>↺ Show original</button>
           <h3 style="margin-top:8px">SRT</h3>
           <button class="tbtn" id="srtExport" style="width:auto;padding:3px 10px;font-size:12px;align-self:flex-start">Export .srt</button>
           <div class="empty-hint" style="font-size:11.5px">Captions of the edited timeline as SubRip.</div>
@@ -650,8 +680,24 @@
   <div id="transcriptContextMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.18);padding:4px 0;min-width:150px;font-size:12px">
     <button class="ctx-item" data-action="cut">✂ Cut this</button>
     <button class="ctx-item" data-action="keep">🛡 Keep this</button>
+    <button class="ctx-item" data-action="bleep">🔕 Bleep this word</button>
     <button class="ctx-item" data-action="ask-ai">💬 Ask AI about this</button>
     <button class="ctx-item" data-action="punch">🔍 Zoom punch here</button>
+  </div>
+
+  <div id="transitionMenu" class="context-menu" style="display:none;position:fixed;z-index:1000;background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.18);padding:8px 10px;min-width:170px;font-size:12px">
+    <div style="font-weight:600;margin-bottom:6px;color:var(--ink)">Clip Transition</div>
+    <select id="transTypeSel" style="width:100%;margin-bottom:6px;background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);padding:3px 5px;border-radius:4px">
+      <option value="none">Cut (none)</option>
+      <option value="dissolve">Dissolve (crossfade)</option>
+      <option value="flash">Flash (white)</option>
+      <option value="whip-pan">Whip-Pan</option>
+    </select>
+    <label style="font-size:11px;color:var(--ink-2);display:block;margin-bottom:2px">Duration: <span id="transDurVal">150ms</span></label>
+    <input type="range" id="transDurRng" min="100" max="500" step="25" value="150" style="width:100%;accent-color:var(--accent)">
+    <div style="display:flex;justify-content:flex-end;gap:4px;margin-top:6px">
+      <button class="tbtn" id="closeTransBtn" style="width:auto;padding:2px 8px">Close</button>
+    </div>
   </div>
 
   <div id="inlineChatBox" class="inline-chat-box" style="display:none;position:fixed;z-index:1010;background:var(--bg);border:1px solid var(--accent);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.22);padding:10px;width:320px;font-size:12px">

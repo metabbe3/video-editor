@@ -43,6 +43,11 @@ import { parseChatCommand, applyChatOp } from '../engine/chat-ops.js';
 import { calibrateThreshold, FILLER_RE } from '../engine/edit-engine.js';
 import { ChatDirector } from './agents/ChatDirector.js';
 import { ChatPanel } from './ui/ChatPanel.js';
+import { computeDuckGainCurve } from '../engine/duck.js';
+import { BUILTIN_EMOJIS, suggestStickers } from '../engine/stickers.js';
+import { buildTranslationMessages, parseTranslationResponse } from '../engine/translate.js';
+import { glmChat } from '../engine/glm.js';
+import { removeKeyframe } from '../engine/keyframes.js';
 
 const $ = (id) => document.getElementById(id);
 const LS = { get: (k, d) => localStorage.getItem(k) ?? d, set: (k, v) => localStorage.setItem(k, v) };
@@ -108,6 +113,33 @@ export class App {
       getRazor: () => this.razor,
       razorSplit: (t) => this.splitAt(t),
       onDrop: (payload, t, lane) => this.onTimelineDrop(payload, t, lane),
+      getDuckCurve: () => this.preview?.duckCurve || null,
+      commitKeyframe: () => { this.pushUndo(); this.scheduleSave(); this.preview.redraw(); },
+      deleteKeyframe: (seg, propName, kfIndex) => {
+        const k = this.project.edl?.keep?.[seg];
+        if (k?.keyframes?.[propName]) {
+          this.pushUndo();
+          k.keyframes[propName] = removeKeyframe(k.keyframes[propName], kfIndex);
+          this.scheduleSave();
+          this.drawAll();
+          renderInspector(this);
+          this.toast('Keyframe deleted');
+        }
+      },
+      selectOverlay: (idx) => {
+        this.selectedOverlayIndex = idx;
+        this.selectedClipIndex = null;
+        renderInspector(this);
+      },
+      commitOverlayChange: () => {
+        this.pushUndo();
+        this.scheduleSave();
+        this.renderOverlayList();
+        this.preview.redraw();
+      },
+      onTransitionClick: (seg, at, trans) => {
+        this.openTransitionMenu(seg, at, trans);
+      },
     };
   }
 
@@ -302,6 +334,7 @@ export class App {
     on('musicChip', 'click', () => this.shell.show('sound'));
     const refreshMusicSel = () => {
       const sel = $('bgmSel');
+      if (!sel) return;
       sel.textContent = '';
       const none = document.createElement('option');
       none.value = ''; none.textContent = 'None';
@@ -313,26 +346,145 @@ export class App {
       }
       if (this.project.bgm?.src) sel.value = this.project.bgm.src;
     };
-    $('musicChip').addEventListener('click', refreshMusicSel);
+    $('musicChip')?.addEventListener('click', refreshMusicSel);
+
+    const addMusicBtn = $('addMusicBtn');
+    const musicFileInput = $('musicFileInput');
+    if (addMusicBtn && musicFileInput) {
+      addMusicBtn.onclick = () => musicFileInput.click();
+      musicFileInput.onchange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const id = `music_${Date.now()}_${file.name}`;
+        this.project.reg = this.project.reg || { items: [] };
+        this.project.reg.items.push({ id, name: file.name, kind: 'audio', file });
+
+        this.pushUndo();
+        this.project.bgm = {
+          src: id,
+          name: file.name,
+          gainDb: Number($('bgmVol').value) || -12,
+          autoDuck: $('bgmDuck').checked,
+        };
+        this.project.edl = { ...(this.project.edl || {}), bgm: this.project.bgm };
+
+        // Also add to audioOverlays for timeline visibility and audio mixing
+        this.project.edl.audioOverlays = this.project.edl.audioOverlays || [];
+        this.project.edl.audioOverlays.push({
+          id, src: id, at: 0, dur: 3600, volume: 1, name: file.name, isMusic: true,
+        });
+
+        refreshMusicSel();
+        $('bgmSel').value = id;
+        this.refreshDerived();
+        this.scheduleSave();
+        this.toast(`Background music added: ${file.name}`);
+      };
+    }
+
     on('bgmSel', 'change', () => {
       const p = this.project;
       p.bgm = $('bgmSel').value ? { src: $('bgmSel').value, gainDb: Number($('bgmVol').value), autoDuck: $('bgmDuck').checked } : null;
+      if (p.edl) p.edl.bgm = p.bgm;
       LS.set('bgm', JSON.stringify(p.bgm ?? ''));
+      this.refreshDerived();
     });
-    on('bgmVol', 'input', () => { if (this.project.bgm) { this.project.bgm.gainDb = Number($('bgmVol').value); LS.set('bgm', JSON.stringify(this.project.bgm)); } });
-    on('bgmDuck', 'change', () => { if (this.project.bgm) { this.project.bgm.autoDuck = $('bgmDuck').checked; LS.set('bgm', JSON.stringify(this.project.bgm)); } });
+    on('bgmVol', 'input', () => {
+      const val = Number($('bgmVol').value);
+      if ($('bgmVolV')) $('bgmVolV').textContent = `${val}dB`;
+      if (this.project.bgm) {
+        this.project.bgm.gainDb = val;
+        if (this.project.edl) this.project.edl.bgm = this.project.bgm;
+        LS.set('bgm', JSON.stringify(this.project.bgm));
+      }
+    });
+    on('bgmDuck', 'change', () => {
+      if (this.project.bgm) {
+        this.project.bgm.autoDuck = $('bgmDuck').checked;
+        if (this.project.edl) this.project.edl.bgm = this.project.bgm;
+        LS.set('bgm', JSON.stringify(this.project.bgm));
+      }
+    });
     on('autoSfx', 'change', () => { this.project.settings.autoSfx = $('autoSfx').checked; LS.set('autosfx', $('autoSfx').checked ? '1' : '0'); if (this.project.edl) this.rebuild(); });
+
+    // 🌐 Auto-translate captions
+    const transBtn = $('translateCaptionsBtn');
+    const resetTransBtn = $('resetTranslateBtn');
+    if (transBtn) {
+      transBtn.onclick = async () => {
+        const p = this.project;
+        if (!p.words?.length) return this.toast('No transcript available to translate');
+        const glmKey = LS.get('glm_key') || p.settings.glmKey;
+        if (!glmKey) return this.toast('Set GLM API key in Settings first');
+
+        const targetLang = $('targetLangSel').value || 'en';
+        transBtn.disabled = true;
+        transBtn.textContent = 'Translating…';
+        try {
+          p.translations = p.translations || {};
+          let translatedWords = p.translations[targetLang];
+          if (!translatedWords) {
+            const messages = buildTranslationMessages(p.words, targetLang);
+            const res = await glmChat({ apiKey: glmKey }, messages, { jsonMode: true });
+            translatedWords = parseTranslationResponse(res.content, p.words);
+            p.translations[targetLang] = translatedWords;
+          }
+
+          this.pushUndo();
+          p.words = translatedWords;
+          if (p.edl) p.edl.words = translatedWords;
+          this.rebuild();
+          this.renderTranscript();
+          if (resetTransBtn) resetTransBtn.hidden = false;
+          this.toast(`Captions translated to ${targetLang}!`);
+        } catch (err) {
+          console.error(err);
+          this.toast(`Translation failed: ${err.message}`);
+        } finally {
+          transBtn.disabled = false;
+          transBtn.textContent = 'Translate';
+        }
+      };
+    }
+    if (resetTransBtn) {
+      resetTransBtn.onclick = () => {
+        const p = this.project;
+        if (!p.words?.length) return;
+        this.pushUndo();
+        p.words = p.words.map((w) => ({ ...w, w: w.originalW || w.w, translated: false }));
+        if (p.edl) p.edl.words = p.words;
+        this.rebuild();
+        this.renderTranscript();
+        resetTransBtn.hidden = true;
+        this.toast('Restored original captions');
+      };
+    }
+
+    // ⧓ Transition popup handlers
+    on('closeTransBtn', 'click', () => {
+      const m = $('transitionMenu');
+      if (m) m.style.display = 'none';
+    });
+    on('transTypeSel', 'change', () => this.applySelectedTransition());
+    on('transDurRng', 'input', () => {
+      if ($('transDurVal')) $('transDurVal').textContent = `${$('transDurRng').value}ms`;
+      this.applySelectedTransition();
+    });
+
     // ✍️ text + 😀 sticker panels
     for (const b of document.querySelectorAll('[data-addtext]')) {
       b.onclick = () => this.addOverlay({ type: 'text', preset: b.dataset.addtext, text: b.dataset.addtext === 'subtitle' ? 'new subtitle' : 'NEW TEXT' });
     }
-    const EMOJI = [...'🔥💯😂😍😮🤯👀👇✅❌⚡🎉💀🙌👏🥶😎🤔🚀💰📈❤️🧠👉🏆🎬💡🔔⭐🎯🤝😭'];
-    for (const ch of EMOJI) {
-      const b = document.createElement('button');
-      b.className = 'big';
-      b.textContent = ch;
-      b.onclick = () => this.addOverlay({ type: 'sticker', char: ch });
-      $('emojiGrid').appendChild(b);
+    const emojiGrid = $('emojiGrid');
+    if (emojiGrid) {
+      emojiGrid.textContent = '';
+      for (const ch of BUILTIN_EMOJIS) {
+        const b = document.createElement('button');
+        b.className = 'big';
+        b.textContent = ch;
+        b.onclick = () => this.addOverlay({ type: 'sticker', char: ch });
+        emojiGrid.appendChild(b);
+      }
     }
     for (const b of document.querySelectorAll('[data-addshape]')) {
       b.onclick = () => this.addOverlay({ type: 'sticker', shape: b.dataset.addshape });
@@ -1176,6 +1328,10 @@ export class App {
       sp.className = 'w';
       sp.textContent = w.w;
       sp.dataset.idx = String(w.i);
+      if (w.bleep) {
+        sp.classList.add('bleeped');
+        sp.title = 'Bleeped (1kHz censor tone)';
+      }
 
       const prop = this.wordProposal(w);
       const isKept = this.wordKept(w);
@@ -1259,6 +1415,7 @@ export class App {
     }
     el.appendChild(frag);
     this.renderTakeStacks(el);
+    this.renderStickerSuggestions();
   }
 
   openTranscriptContextMenu(e, clickedWord) {
@@ -1330,6 +1487,24 @@ export class App {
         this.project.edl.punches.sort((a, b) => a.at - b.at);
         this.refreshDerived();
         this.toast(`Zoom punch added on "${w0.w}"`);
+        break;
+
+      case 'bleep':
+        this.pushUndo();
+        this.project.bleeps = this.project.bleeps || [];
+        let anyBleeped = false;
+        for (const w of words) {
+          w.bleep = !w.bleep;
+          if (w.bleep) {
+            anyBleeped = true;
+            if (!this.project.bleeps.includes(w.i)) this.project.bleeps.push(w.i);
+          } else {
+            this.project.bleeps = this.project.bleeps.filter((x) => x !== w.i);
+          }
+        }
+        this.renderTranscript();
+        this.scheduleSave();
+        this.toast(anyBleeped ? `🔕 Bleeped ${words.length} word${words.length > 1 ? 's' : ''}` : `Unbleeped ${words.length} word${words.length > 1 ? 's' : ''}`);
         break;
     }
   }
@@ -1661,6 +1836,68 @@ export class App {
   }
 
   renderInspector() { renderInspector(this); }
+
+  openTransitionMenu(seg, at, trans) {
+    this._transContext = { seg, at, trans };
+    const menu = $('transitionMenu');
+    if (!menu) return;
+    $('transTypeSel').value = trans?.type || 'dissolve';
+    $('transDurRng').value = String(trans?.ms || 150);
+    if ($('transDurVal')) $('transDurVal').textContent = `${$('transDurRng').value}ms`;
+    menu.style.display = 'block';
+    menu.style.left = `${Math.min(window.innerWidth - 200, Math.max(20, window.innerWidth / 2 - 80))}px`;
+    menu.style.bottom = '110px';
+  }
+
+  applySelectedTransition() {
+    if (!this._transContext || !this.project.edl) return;
+    const { at } = this._transContext;
+    const type = $('transTypeSel').value;
+    const ms = Number($('transDurRng').value) || 150;
+
+    this.pushUndo();
+    this.project.edl.transitions = (this.project.edl.transitions || []).filter((q) => Math.abs(q.at - at) >= 0.05);
+    if (type !== 'none') {
+      this.project.edl.transitions.push({ at, ms, type });
+      this.project.edl.transitions.sort((a, b) => a.at - b.at);
+    }
+    this.refreshDerived();
+    this.scheduleSave();
+    this.toast(type === 'none' ? 'Transition removed (hard cut)' : `Transition set: ${type} (${ms}ms)`);
+  }
+
+  renderStickerSuggestions() {
+    const box = $('stickerSuggestionBox');
+    const el = $('stickerSuggestions');
+    if (!box || !el) return;
+    el.textContent = '';
+    const suggestions = suggestStickers(this.project.words || []);
+    if (!suggestions.length) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    for (const s of suggestions) {
+      const chip = document.createElement('button');
+      chip.className = 'tbtn';
+      chip.style.cssText = 'width:auto;padding:2px 8px;font-size:11px;display:flex;align-items:center;gap:4px';
+      chip.textContent = `${s.char} "${s.word}"`;
+      chip.title = `Add ${s.char} sticker at "${s.word}"`;
+      chip.onclick = () => {
+        if (!this.project.edl) return;
+        const tl = timelineOf(this.project.edl);
+        const at = tl.sourceToEdited(s.at) ?? this.preview.editedTime();
+        this.addOverlay({
+          type: 'sticker',
+          char: s.char,
+          t0: Math.max(0, at - 0.2),
+          t1: Math.min(tl.duration, at + 2.0),
+        });
+        this.toast(`Added ${s.char} at "${s.word}"`);
+      };
+      el.appendChild(chip);
+    }
+  }
 
   /** one-shot WebAudio audition of a procedural SFX preset */
   auditionSfx(kind) {

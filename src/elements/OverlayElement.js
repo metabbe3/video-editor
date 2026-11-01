@@ -15,38 +15,88 @@ export class OverlayElement {
   render(ctx, w, h, t) {
     const o = this.o;
     if (t < o.t0 || t >= o.t1) return;
-    const life = Math.min(1, (t - o.t0) / 0.35); // pop-in
-    const pop = EASE.inOut(life);
-    const alpha = Math.min(1, life * 1.6);
+
+    // Animation progress: in (0..1) and out (0..1)
+    const animDur = 0.28;
+    const pIn = Math.min(1, Math.max(0, (t - o.t0) / animDur));
+    const pOut = Math.min(1, Math.max(0, (o.t1 - t) / animDur));
+
+    const animIn = o.animIn || 'pop';
+    const animOut = o.animOut || 'fade';
+
+    let alpha = 1;
+    let scaleFactor = 1;
+    let offsetY = 0;
+
+    // In animation
+    if (pIn < 1) {
+      if (animIn === 'pop') {
+        const p = EASE.inOut(pIn);
+        scaleFactor *= 0.75 + 0.25 * p;
+        alpha *= Math.min(1, pIn * 1.5);
+      } else if (animIn === 'fade') {
+        alpha *= EASE.inOut(pIn);
+      } else if (animIn === 'slide') {
+        const p = EASE.inOut(pIn);
+        offsetY += (1 - p) * 36;
+        alpha *= p;
+      }
+    }
+
+    // Out animation
+    if (pOut < 1 && animOut !== 'none') {
+      if (animOut === 'pop') {
+        const p = EASE.inOut(pOut);
+        scaleFactor *= 0.75 + 0.25 * p;
+        alpha *= Math.min(1, pOut * 1.5);
+      } else if (animOut === 'fade') {
+        alpha *= EASE.inOut(pOut);
+      } else if (animOut === 'slide') {
+        const p = EASE.inOut(pOut);
+        offsetY += (1 - p) * 36;
+        alpha *= p;
+      }
+    }
+
     ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.translate(o.x * w, o.y * h);
+    if (o.blendMode && o.blendMode !== 'normal') {
+      ctx.globalCompositeOperation = o.blendMode;
+    }
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.translate(o.x * w, o.y * h + offsetY);
     ctx.rotate(o.rot ?? 0);
-    if (o.type === 'text') this.drawText(ctx, w, h, o, pop);
-    else this.drawSticker(ctx, w, h, o, pop);
+    if (scaleFactor !== 1) ctx.scale(scaleFactor, scaleFactor);
+
+    if (o.type === 'text') this.drawText(ctx, w, h, o, pIn);
+    else this.drawSticker(ctx, w, h, o, pIn);
     ctx.restore();
   }
 
   drawText(ctx, w, h, o, pop) {
     const p = TEXT_PRESETS[o.preset] ?? TEXT_PRESETS.title;
-    const size = (o.size ?? 1) * p.size * h;
-    const text = p.upper ? String(o.text || '').toUpperCase() : String(o.text || '');
-    ctx.font = `${p.weight} ${size}px Impact, "Arial Black", system-ui, sans-serif`;
+    const baseSize = o.fontSize ? (Number(o.fontSize) / 1080) * h : (o.size ?? 1) * p.size * h;
+    const size = Math.max(12, baseSize);
+    const text = p.upper && !o.fontSize ? String(o.text || '').toUpperCase() : String(o.text || '');
+    ctx.font = `${o.weight ?? p.weight} ${size}px Impact, "Arial Black", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const m = ctx.measureText(text);
-    if (p.bg) { // pill background
+    if (p.bg || o.bg) { // pill background
       const padX = size * 0.5, padY = size * 0.32;
-      ctx.fillStyle = p.bg;
+      ctx.fillStyle = o.bg ?? p.bg;
       const rx = -m.width / 2 - padX, ry = -size * 0.62 - padY * 0.4, rw = m.width + padX * 2, rh = size * 1.24 + padY * 0.8;
       ctx.beginPath();
       if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, rh / 2);
       else ctx.rect(rx, ry, rw, rh);
       ctx.fill();
     }
-    const s = 0.9 + 0.1 * pop;
-    ctx.scale(s, s);
-    if (p.stroke) { ctx.lineWidth = Math.max(2, size * 0.09); ctx.strokeStyle = p.stroke; ctx.lineJoin = 'round'; ctx.strokeText(text, 0, 0); }
+    const strokeColor = o.stroke ?? p.stroke;
+    if (strokeColor && strokeColor !== 'none') {
+      ctx.lineWidth = o.strokeWidth ?? Math.max(2, size * 0.09);
+      ctx.strokeStyle = strokeColor;
+      ctx.lineJoin = 'round';
+      ctx.strokeText(text, 0, 0);
+    }
     ctx.fillStyle = o.color ?? p.color;
     ctx.fillText(text, 0, 0);
   }

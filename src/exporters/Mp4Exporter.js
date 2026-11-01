@@ -13,6 +13,8 @@ import { TUNING } from '../../engine/edit-engine.js';
 import { computeDuckEnvelope, renderSfx, audioInFor } from '../core/AudioMix.js';
 import { resampleMonoTo } from '../../engine/analyze.js';
 import { clipFadeGain, evalSpeedCurve } from '../../engine/clip-ops.js';
+import { computeDuckGainCurve } from '../../engine/duck.js';
+import { generateBleepTone } from '../../engine/bleep.js';
 
 export async function exportVideo({ edl, getFile, canvas, compositor, onProgress, qualityFactor = 0.1, gainDb = 0, sfx = false }) {
   const tl = timelineOf(edl);
@@ -28,6 +30,30 @@ export async function exportVideo({ edl, getFile, canvas, compositor, onProgress
   if (aTrack) program = await assembleProgram(aTrack, tl, RATE, onProg(onProgress, 'audio'), { jCuts: edl.style.jCuts !== false, edl });
   if (program) {
     applyJoinFades(program, tl, RATE);
+
+    // Word bleeping: mute original audio and mix 1kHz censor tone for bleeped words
+    const bleepWords = (edl.words || []).filter((w) => w.bleep);
+    if (bleepWords.length) {
+      for (const w of bleepWords) {
+        const s = tl.sourceToEdited(w.start);
+        const e = tl.sourceToEdited(w.end);
+        if (s == null || e == null || e <= s) continue;
+        const startIdx = Math.round(s * RATE);
+        const endIdx = Math.min(program.length, Math.round(e * RATE));
+        if (startIdx >= program.length || startIdx >= endIdx) continue;
+
+        // Mute original speech in word interval
+        for (let i = startIdx; i < endIdx; i++) program[i] = 0;
+
+        // Add 1kHz bleep tone with smooth 10ms envelope
+        const toneDur = Math.max(0.08, e - s);
+        const tone = generateBleepTone({ sampleRate: RATE, durationSec: toneDur, freq: 1000, envelopeMs: 10 });
+        for (let i = 0; i < tone.length && startIdx + i < endIdx; i++) {
+          program[startIdx + i] += tone[i];
+        }
+      }
+    }
+
     // Mastering chain, memory-bounded (≤2 full-length arrays for a 30-min edit):
     // HPF and compression run IN PLACE; LUFS is measured by streaming
     // K-weighted blocks; gain applied in place. HPF -> comp -> measure -> gain.
@@ -68,10 +94,18 @@ export async function exportVideo({ edl, getFile, canvas, compositor, onProgress
           if (cursor < program.length) break; // single pass covers the edit via loop: restart sink
           break;
         }
-        const env = computeDuckEnvelope(edl.words || [], tl, {});
+        const duck = computeDuckGainCurve({
+          words: edl.words || [],
+          tl,
+          duration: tl.duration,
+          baseDb: edl.bgm.gainDb ?? -20,
+          duckDb: edl.bgm.duckDb ?? -12,
+          attackMs: 150,
+          releaseMs: 400,
+        });
         const base = 10 ** ((edl.bgm.gainDb ?? -20) / 20);
         for (let i = 0; i < program.length; i++) {
-          const g = base * (env[Math.min(env.length - 1, Math.floor((i / RATE) / 0.05))] ?? 0.3);
+          const g = edl.bgm.autoDuck !== false ? duck.getGainAt(i / RATE) : base;
           program[i] += bed[i % bed.length] * g;
         }
         let pk = 0;

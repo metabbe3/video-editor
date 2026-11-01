@@ -115,6 +115,9 @@ export function serializeProjectState(p) {
     chatHistory: p.chatHistory ? JSON.parse(JSON.stringify(p.chatHistory)) : [],
     chatLog: p.chatLog ? JSON.parse(JSON.stringify(p.chatLog)) : (p.chatHistory ? JSON.parse(JSON.stringify(p.chatHistory)) : []),
     stance: p.stance || 'balanced',
+    bgm: p.bgm ? JSON.parse(JSON.stringify(p.bgm)) : (p.edl?.bgm ? JSON.parse(JSON.stringify(p.edl.bgm)) : null),
+    bleeps: p.bleeps ? JSON.parse(JSON.stringify(p.bleeps)) : [],
+    translations: p.translations ? JSON.parse(JSON.stringify(p.translations)) : {},
   };
 }
 
@@ -140,9 +143,23 @@ export function applyProjectSnapshot(p, snap) {
     p.chatLog = snap.chatHistory;
   }
   if (snap.stance) p.stance = snap.stance;
+  if (snap.bgm) {
+    p.bgm = snap.bgm;
+    if (p.edl) p.edl.bgm = snap.bgm;
+  }
+  if (snap.bleeps) {
+    p.bleeps = snap.bleeps;
+    if (p.words) {
+      for (const idx of snap.bleeps) {
+        if (p.words[idx]) p.words[idx].bleep = true;
+      }
+    }
+  }
+  if (snap.translations) p.translations = snap.translations;
   if (snap.edl) {
     p.edl = snap.edl;
     if (snap.audioOverlays?.length) p.edl.audioOverlays = snap.audioOverlays;
+    if (snap.bgm && !p.edl.bgm) p.edl.bgm = snap.bgm;
   }
   return true;
 }

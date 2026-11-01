@@ -6,6 +6,9 @@
 // - add-pause ("kasih jeda 0.3s setelah kata ini", "add pause 0.5s")
 // - add-punch ("zoom punch here", "kasih zoom")
 // - multi-punch ("cari semua 'IHSG' dan zoom punch", "find all 'AI' and zoom")
+// - bleep-words ("bleep kata IHSG", "sensor semua kata kasar")
+
+import { findWordsToBleep } from './bleep.js';
 
 /**
  * Parse a chat command locally with regex and phonetic matching.
@@ -41,6 +44,42 @@ export function parseChatCommand(text, context = {}) {
         ? `Found ${matchingIndices.length} occurrences of "${term}" to punch in.`
         : `No occurrences of "${term}" found in transcript.`,
     };
+  }
+
+  // 1b. Bleep curse words: "sensor semua kata kasar", "bleep kata kasar", "censor curse words"
+  if (/(?:sensor|bleep|censor|mute)\s+(?:semua\s+|all\s+)?(?:kata\s+kasar|curse\s+words?|profanit(?:y|ies)|swears?)/i.test(q)) {
+    const matchingIndices = findWordsToBleep(allWords, 'curse');
+    return {
+      op: 'bleep-words',
+      term: 'curse',
+      wordIndices: matchingIndices,
+      label: `Bleep ${matchingIndices.length} curse word${matchingIndices.length === 1 ? '' : 's'}`,
+      explanation: matchingIndices.length
+        ? `Found ${matchingIndices.length} profanities to censor with 1kHz bleep tone.`
+        : 'No profanities detected in transcript.',
+    };
+  }
+
+  // 1c. Bleep specific word: "bleep kata IHSG", "sensor kata 'anjing'", "censor word 'X'"
+  const bleepWordMatch = q.match(/(?:bleep|sensor|censor|mute)\s+(?:semua\s+|all\s+)?(?:kata\s+|word\s+)?['"“]?([^'"”\s]+)['"”]?/i);
+  if (bleepWordMatch && !/(?:kasar|curse|profanit)/i.test(bleepWordMatch[1])) {
+    const term = bleepWordMatch[1].trim().toLowerCase().replace(/[.,!?;:]+$/, '');
+    if (term && term !== 'this' && term !== 'ini') {
+      const matchingIndices = [];
+      for (let i = 0; i < allWords.length; i++) {
+        const cleanW = allWords[i].w.toLowerCase().replace(/[.,!?;:]+$/, '');
+        if (cleanW === term) matchingIndices.push(allWords[i].i ?? i);
+      }
+      return {
+        op: 'bleep-words',
+        term,
+        wordIndices: matchingIndices,
+        label: `Bleep "${term}" (${matchingIndices.length} occurrence${matchingIndices.length === 1 ? '' : 's'})`,
+        explanation: matchingIndices.length
+          ? `Censors ${matchingIndices.length} occurrences of "${term}" with 1kHz tone and mutes audio.`
+          : `Word "${term}" not found in transcript.`,
+      };
+    }
   }
 
   // 2. Add pause: "kasih jeda 0.3s setelah kata ini", "add pause 0.5s"
@@ -115,9 +154,9 @@ export function parseChatCommand(text, context = {}) {
  */
 export function applyChatOp(project, op) {
   if (!project || !op) return false;
-  const ov = project.activeOverrides || project.overrides;
-  const cuts = new Set(ov.cuts.filter((c) => typeof c === 'number'));
-  const keeps = new Set(ov.keeps);
+  const ov = project.activeOverrides || project.overrides || { cuts: [], keeps: [] };
+  const cuts = new Set((ov.cuts || []).filter((c) => typeof c === 'number'));
+  const keeps = new Set(ov.keeps || []);
 
   switch (op.op) {
     case 'keep-range':
@@ -188,6 +227,19 @@ export function applyChatOp(project, op) {
           }
         }
         project.edl.punches.sort((a, b) => a.at - b.at);
+        return true;
+      }
+      return false;
+
+    case 'bleep-words':
+      if (project.words && op.wordIndices?.length) {
+        project.bleeps = project.bleeps || [];
+        for (const idx of op.wordIndices) {
+          if (project.words[idx]) {
+            project.words[idx].bleep = true;
+            if (!project.bleeps.includes(idx)) project.bleeps.push(idx);
+          }
+        }
         return true;
       }
       return false;

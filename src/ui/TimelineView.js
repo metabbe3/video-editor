@@ -63,7 +63,7 @@ export function createTimelineView(canvas, host) {
     let y = 0;
     const rows = {};
     const hasB = (edl.broll || []).length > 0;
-    const hasT = (edl.steps || []).length > 0;
+    const hasT = (edl.steps || []).length > 0 || (edl.overlays || []).length > 0;
     const hasSfx = (edl.sfx || []).length > 0;
     const hasAo = (edl.audioOverlays || []).length > 0;
     const hasBgm = !!edl.bgm?.src;
@@ -135,6 +135,39 @@ export function createTimelineView(canvas, host) {
         const spd = s.rate !== 1 ? ` ${s.rate.toFixed(2).replace(/\.?0+$/, '')}×` : '';
         ctx.fillText(`${fmt(s.in)}→${fmt(s.out)}${spd}${s.freeze > 0 ? ' ❄' : ''} src`, (x0 + x1) / 2, y + h / 2 + 3);
       }
+      // Keyframe diamond markers on the clip
+      const clipKfs = edl.keep[i]?.keyframes;
+      if (clipKfs) {
+        for (const [propName, track] of Object.entries(clipKfs)) {
+          if (!Array.isArray(track)) continue;
+          for (let ki = 0; ki < track.length; ki++) {
+            const kf = track[ki];
+            const kfT = tl.starts[i] + kf.t * s.dur;
+            const kfX = xOf(kfT);
+            ctx.fillStyle = '#f59e0b'; // Amber diamond
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            drawDiamond(ctx, kfX, y + h / 2, 4.5);
+          }
+        }
+      }
+      // Transition marker at join boundary
+      if (i < tl.segments.length - 1) {
+        const joinT = tl.starts[i] + s.dur;
+        const jx = xOf(joinT);
+        const trans = (edl.transitions || []).find((q) => Math.abs(q.at - joinT) < 0.05);
+        ctx.fillStyle = trans ? clay : 'rgba(255,255,255,0.4)';
+        ctx.beginPath();
+        ctx.arc(jx, y + h / 2, trans ? 6 : 4, 0, Math.PI * 2);
+        ctx.fill();
+        if (trans) {
+          ctx.fillStyle = '#fff';
+          ctx.font = '8px system-ui';
+          ctx.textAlign = 'center';
+          const sym = trans.type === 'flash' ? '⚡' : (trans.type === 'whip-pan' ? '⇄' : '⧓');
+          ctx.fillText(sym, jx, y + h / 2 + 3);
+        }
+      }
       // trim handles
       for (const [ex, edge] of [[x0, 'in'], [x1, 'out']]) {
         ctx.fillStyle = T.hoverEdge && T.hoverEdge.seg === i && T.hoverEdge.edge === edge ? clay : 'rgba(255,255,255,0.55)';
@@ -166,8 +199,20 @@ export function createTimelineView(canvas, host) {
       }
     });
 
-    // T/FX lane: step/chapter blocks
+    // T/FX lane: overlay text/stickers & step/chapter blocks
     if (rows.t.h) {
+      for (const [oi, o] of (edl.overlays || []).entries()) {
+        const x0 = xOf(o.t0), x1 = xOf(o.t1);
+        ctx.fillStyle = o.type === 'text' ? 'rgba(31,111,235,0.4)' : 'rgba(245,158,11,0.4)';
+        ctx.strokeStyle = o.type === 'text' ? clay : '#f59e0b';
+        roundRect(ctx, x0, rows.t.y + 2, Math.max(8, x1 - x0), rows.t.h - 4, 3);
+        ctx.fill(); ctx.stroke();
+        if (x1 - x0 > 24) {
+          ctx.fillStyle = '#fff'; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
+          const txt = o.type === 'text' ? `✍ ${o.text || 'text'}` : `😀 ${o.char || 'sticker'}`;
+          ctx.fillText(txt.slice(0, 14), x0 + 4, rows.t.y + rows.t.h - 4);
+        }
+      }
       for (const s of edl.steps || []) {
         const at = tl.sourceToEdited(edl.words?.[s.from]?.start ?? 0);
         if (at == null) continue;
@@ -179,12 +224,32 @@ export function createTimelineView(canvas, host) {
       }
     }
 
-    // A3 BGM bar
+    // A3 BGM bar + auto-ducking gain curve overlay
     if (rows.a3.h) {
-      ctx.fillStyle = 'rgba(212,163,115,0.5)';
+      ctx.fillStyle = 'rgba(212,163,115,0.4)';
       roundRect(ctx, GUTTER, rows.a3.y + 2, Math.max(10, xOf(tl.duration) - GUTTER), rows.a3.h - 4, 3); ctx.fill();
       ctx.fillStyle = '#29261b'; ctx.font = '9px system-ui'; ctx.textAlign = 'left';
-      ctx.fillText(`BGM ${String(edl.bgm.src || '').split('/').pop()} · ${tl.duration.toFixed(0)}s`, GUTTER + 4, rows.a3.y + rows.a3.h - 4);
+      const bgmName = String(edl.bgm?.src || '').split('/').pop() || 'Music';
+      ctx.fillText(`🎵 ${bgmName} · ${tl.duration.toFixed(0)}s`, GUTTER + 4, rows.a3.y + rows.a3.h - 4);
+
+      // Thin visual gain curve overlay for auto-duck
+      const duck = host.getDuckCurve ? host.getDuckCurve() : null;
+      if (duck?.points?.length) {
+        ctx.strokeStyle = '#1f6feb';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        let started = false;
+        for (let pi = 0; pi < duck.points.length; pi++) {
+          const pt = duck.points[pi];
+          const px = xOf(pt.t);
+          if (px < GUTTER || px > W) continue;
+          const normG = Math.max(0, Math.min(1, pt.gain));
+          const py = rows.a3.y + rows.a3.h - 3 - normG * (rows.a3.h - 6);
+          if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
     }
 
     // punch markers
@@ -309,12 +374,110 @@ export function createTimelineView(canvas, host) {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
+  const keyframeAt = (edl, x, y, rows) => {
+    if (!rows.v?.h || y < rows.v.y || y > rows.v.y + rows.v.h) return null;
+    const tl = timelineOf(edl);
+    for (let i = 0; i < tl.segments.length; i++) {
+      const s = tl.segments[i];
+      const kfs = edl.keep[i]?.keyframes;
+      if (!kfs) continue;
+      for (const [propName, track] of Object.entries(kfs)) {
+        if (!Array.isArray(track)) continue;
+        for (let ki = 0; ki < track.length; ki++) {
+          const kf = track[ki];
+          const kfX = xOf(tl.starts[i] + kf.t * s.dur);
+          const kfY = rows.v.y + rows.v.h / 2;
+          if (Math.hypot(x - kfX, y - kfY) <= 8) {
+            return { seg: i, propName, kfIndex: ki, kf, kfX, kfY, s };
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  const transitionAt = (edl, x, y, rows) => {
+    if (!rows.v?.h || y < rows.v.y || y > rows.v.y + rows.v.h) return null;
+    const tl = timelineOf(edl);
+    for (let i = 0; i < tl.segments.length - 1; i++) {
+      const s = tl.segments[i];
+      const jx = xOf(tl.starts[i] + s.dur);
+      const jy = rows.v.y + rows.v.h / 2;
+      if (Math.hypot(x - jx, y - jy) <= 10) {
+        const trans = (edl.transitions || []).find((q) => Math.abs(q.at - (tl.starts[i] + s.dur)) < 0.05);
+        return { seg: i, at: tl.starts[i] + s.dur, trans };
+      }
+    }
+    return null;
+  };
+
+  const overlayAt = (edl, x, y, rows) => {
+    if (!rows.t?.h || y < rows.t.y || y > rows.t.y + rows.t.h) return null;
+    for (let i = (edl.overlays || []).length - 1; i >= 0; i--) {
+      const o = edl.overlays[i];
+      const x0 = xOf(o.t0), x1 = xOf(o.t1);
+      if (Math.abs(x - x0) <= 6) return { index: i, o, edge: 'in' };
+      if (Math.abs(x - x1) <= 6) return { index: i, o, edge: 'out' };
+      if (x >= x0 && x <= x1) return { index: i, o, edge: null };
+    }
+    return null;
+  };
+
+  const snapToWordBoundary = (edl, tRaw, tolSec = 0.2) => {
+    if (!edl.words?.length) return tRaw;
+    const tl = timelineOf(edl);
+    let bestT = tRaw;
+    let minDiff = tolSec;
+    for (const w of edl.words) {
+      if (w.keep === false) continue;
+      for (const src of [w.start, w.end]) {
+        const edT = tl.sourceToEdited(src);
+        if (edT != null) {
+          const diff = Math.abs(edT - tRaw);
+          if (diff < minDiff) {
+            minDiff = diff;
+            bestT = edT;
+          }
+        }
+      }
+    }
+    return bestT;
+  };
+
   canvas.addEventListener('pointerdown', (e) => {
     const edl = host.getEdl();
     if (!edl) return;
     canvas.setPointerCapture(e.pointerId);
     const { x, y } = pt(e);
     const rows = rowsOf();
+
+    // 1. Keyframe hit?
+    const kfHit = keyframeAt(edl, x, y, rows);
+    if (kfHit) {
+      T.drag = { kind: 'kfDrag', ...kfHit, startX: x };
+      host.selectClip?.(kfHit.seg);
+      return;
+    }
+
+    // 2. Transition hit?
+    const trHit = transitionAt(edl, x, y, rows);
+    if (trHit) {
+      host.onTransitionClick?.(trHit.seg, trHit.at, trHit.trans);
+      return;
+    }
+
+    // 3. Lane T overlay hit?
+    const ovHit = overlayAt(edl, x, y, rows);
+    if (ovHit) {
+      if (ovHit.edge) {
+        T.drag = { kind: 'overlayTrim', ...ovHit };
+      } else {
+        T.drag = { kind: 'overlayMove', ...ovHit, startX: x, origT0: ovHit.o.t0, origT1: ovHit.o.t1 };
+      }
+      host.selectOverlay?.(ovHit.index);
+      return;
+    }
+
     const aoHit = (edl.audioOverlays || []).find((ao) => {
       const x0 = xOf(ao.at), x1 = xOf(ao.at + (ao.dur || 1));
       return x >= x0 && x <= x1;
@@ -340,6 +503,36 @@ export function createTimelineView(canvas, host) {
       return;
     }
     if (T.drag.kind === 'scrub') host.seekTo(clamp(snapT(tOf(x)), 0, duration()));
+    else if (T.drag.kind === 'kfDrag') {
+      const tl = timelineOf(host.getEdl());
+      const s = tl.segments[T.drag.seg];
+      if (s) {
+        const segStart = tl.starts[T.drag.seg];
+        const newProg = Math.max(0, Math.min(1, (tOf(x) - segStart) / s.dur));
+        T.drag.kf.t = +newProg.toFixed(4);
+        host.redraw();
+      }
+    }
+    else if (T.drag.kind === 'overlayMove') {
+      const edl = host.getEdl();
+      const dt = (x - T.drag.startX) / T.pxPerSec;
+      const dur = T.drag.origT1 - T.drag.origT0;
+      let newT0 = Math.max(0, T.drag.origT0 + dt);
+      newT0 = snapToWordBoundary(edl, newT0);
+      T.drag.o.t0 = +newT0.toFixed(2);
+      T.drag.o.t1 = +(newT0 + dur).toFixed(2);
+      host.redraw();
+    }
+    else if (T.drag.kind === 'overlayTrim') {
+      const edl = host.getEdl();
+      const curT = snapToWordBoundary(edl, tOf(x));
+      if (T.drag.edge === 'in') {
+        T.drag.o.t0 = Math.max(0, Math.min(T.drag.o.t1 - 0.2, curT));
+      } else {
+        T.drag.o.t1 = Math.max(T.drag.o.t0 + 0.2, curT);
+      }
+      host.redraw();
+    }
     else if (T.drag.kind === 'aoDrag') {
       const dt = (x - T.drag.startX) / T.pxPerSec;
       T.drag.item.at = Math.max(0, Math.min(duration() - 0.2, T.drag.origAt + dt));
@@ -362,10 +555,31 @@ export function createTimelineView(canvas, host) {
   const endDrag = () => {
     if (T.drag?.kind === 'trim') host.commitTrim();
     if (T.drag?.kind === 'aoDrag') host.commitTrim?.();
+    if (T.drag?.kind === 'kfDrag') host.commitKeyframe?.();
+    if (T.drag?.kind === 'overlayMove' || T.drag?.kind === 'overlayTrim') host.commitOverlayChange?.();
     T.drag = null;
   };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
+
+  canvas.addEventListener('contextmenu', (e) => {
+    const edl = host.getEdl();
+    if (!edl) return;
+    const { x, y } = pt(e);
+    const rows = rowsOf();
+    const kfHit = keyframeAt(edl, x, y, rows);
+    if (kfHit) {
+      e.preventDefault();
+      host.deleteKeyframe?.(kfHit.seg, kfHit.propName, kfHit.kfIndex);
+      return;
+    }
+    const trHit = transitionAt(edl, x, y, rows);
+    if (trHit) {
+      e.preventDefault();
+      host.onTransitionClick?.(trHit.seg, trHit.at, trHit.trans);
+      return;
+    }
+  });
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
@@ -416,6 +630,16 @@ function tri(ctx, x, y, s, up = false) {
   if (up) { ctx.moveTo(x, y + s); ctx.lineTo(x - s, y); ctx.lineTo(x + s, y); }
   else { ctx.moveTo(x, y); ctx.lineTo(x - s, y + s); ctx.lineTo(x + s, y + s); }
   ctx.closePath(); ctx.fill();
+}
+function drawDiamond(ctx, cx, cy, r) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r);
+  ctx.lineTo(cx + r, cy);
+  ctx.lineTo(cx, cy + r);
+  ctx.lineTo(cx - r, cy);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
 }
 function fmt(t) {
   const m = Math.floor(t / 60), s = t - m * 60;

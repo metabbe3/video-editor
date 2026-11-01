@@ -6,6 +6,7 @@ import { reframeAt } from '../../engine/reframe.js';
 import { timelineOf } from '../core/Compositor.js';
 import { EFFECTS, clampParams, maskGeometry, hasClipFx } from '../effects/clipfx.js';
 import { normalizeCropRect } from '../../engine/clip-ops.js';
+import { evalClipKeyframes } from '../../engine/keyframes.js';
 
 // cached scratch canvases (content / mask / composite) — resized on demand,
 // zero per-frame allocation. ponytail: per-clip offscreen ≈1-3 ms/frame at
@@ -25,18 +26,56 @@ export function srcDims(src) {
   };
 }
 
-/** [{srcTime, alpha, scale, seg}] — outgoing full, incoming fades in over the join */
+/** [{srcTime, alpha, scale, seg, offsetX, transition}] — outgoing full, incoming fades/pans in over join */
 export function arollLayers(t, edl, tl) {
   const m = tl.editedToSource(t);
-  const layers = [{ srcTime: m?.src ?? 0, alpha: 1, scale: 1, seg: m?.seg ?? 0 }];
+  const layers = [{ srcTime: m?.src ?? 0, alpha: 1, scale: 1, seg: m?.seg ?? 0, offsetX: 0 }];
   for (const q of edl.transitions || []) {
-    const d = q.ms / 1000, t0 = q.at - d;
+    const d = (q.ms || 120) / 1000, t0 = q.at - d;
     if (t < t0 || t >= q.at) continue;
     const seg = m?.seg ?? -1;
     const next = tl.segments[seg + 1];
     if (!next) continue;
     const p = EASE.inOut((t - t0) / d);
-    layers.push({ srcTime: next.in + (t - t0) * next.rate, alpha: p, scale: 1 + 0.02 * (1 - p), seg: seg + 1 });
+    const type = q.type || 'dissolve';
+
+    if (type === 'whip-pan') {
+      layers[0].offsetX = -p;
+      layers.push({
+        srcTime: next.in + (t - t0) * next.rate,
+        alpha: 1,
+        scale: 1,
+        seg: seg + 1,
+        offsetX: 1 - p,
+        transition: q,
+      });
+    } else if (type === 'flash') {
+      // Outgoing until midpoint, then incoming
+      const isIncoming = p >= 0.5;
+      const flashAlpha = Math.sin(p * Math.PI);
+      if (isIncoming) {
+        layers[0] = {
+          srcTime: next.in + (t - t0) * next.rate,
+          alpha: 1,
+          scale: 1,
+          seg: seg + 1,
+          flash: flashAlpha,
+          transition: q,
+        };
+      } else {
+        layers[0].flash = flashAlpha;
+        layers[0].transition = q;
+      }
+    } else {
+      // Dissolve (crossfade alpha)
+      layers.push({
+        srcTime: next.in + (t - t0) * next.rate,
+        alpha: p,
+        scale: 1 + 0.02 * (1 - p),
+        seg: seg + 1,
+        transition: q,
+      });
+    }
   }
   return layers;
 }
@@ -68,14 +107,32 @@ export class VideoLayer {
         const drawable = assets.frame(edl.style.arollId, layer.srcTime);
         const clip = edl.keep[layer.seg];
         const layout = clip?.layout ?? 'full';
-        if (drawable) this.region(c, drawable, layout, layer.alpha, punch * layer.scale, edl, t, w, h, clip);
+        const seg = tl.segments[layer.seg];
+        const segStart = tl.starts[layer.seg] ?? 0;
+        const progress = seg?.dur > 0 ? Math.max(0, Math.min(1, (t - segStart) / seg.dur)) : 0;
+        const kf = evalClipKeyframes(clip?.keyframes, progress);
+        if (drawable) this.region(c, drawable, layout, layer.alpha, punch * layer.scale, edl, t, w, h, clip, kf, layer.offsetX);
       }
     };
     // per-clip fx apply to the DOMINANT crossfade layer only.
     // ponytail: both-sided per-clip fx would need per-layer offscreens.
     const dom = layers.reduce((a, b) => (b.alpha > a.alpha ? b : a), layers[0]);
     const clip = edl.keep[dom?.seg];
-    if (!hasClipFx(clip)) { drawPlain(ctx); return; }
+    const postDraw = () => {
+      const maxFlash = Math.max(0, ...layers.map((l) => l.flash || 0));
+      if (maxFlash > 0.01) {
+        ctx.save();
+        ctx.fillStyle = `rgba(255, 255, 255, ${Math.min(1, maxFlash).toFixed(3)})`;
+        ctx.fillRect(0, 0, w, h);
+        ctx.restore();
+      }
+    };
+
+    if (!hasClipFx(clip)) {
+      drawPlain(ctx);
+      postDraw();
+      return;
+    }
 
     const fx = (clip.effects || []).filter((e) => e.on !== false && EFFECTS[e.id]);
     const filters = fx.map((e) => EFFECTS[e.id].filter?.(clampParams(e.id, e.params))).filter(Boolean).join(' ');
@@ -92,11 +149,16 @@ export class VideoLayer {
     }
     // 3. mask in output space (stable under punch zoom — coords are frame-relative)
     const mask = clip.mask;
-    if (!mask) { ctx.drawImage(fxc, 0, 0); return; }
+    if (!mask) {
+      ctx.drawImage(fxc, 0, 0);
+      postDraw();
+      return;
+    }
     if (mask.shape === 'cinematic-bars') {
       ctx.drawImage(fxc, 0, 0);
       ctx.fillStyle = '#000';
       for (const r of maskGeometry('cinematic-bars', mask, w, h).rects) ctx.fillRect(r.x, r.y, r.w, r.h);
+      postDraw();
       return;
     }
     if (mask.shape === 'split') drawPlain(ctx); // clean frame under; effected half over
@@ -117,6 +179,7 @@ export class VideoLayer {
     cctx.drawImage(mc, 0, 0);
     cctx.globalCompositeOperation = 'source-over';
     ctx.drawImage(cc, 0, 0);
+    postDraw();
   }
 
   vignette(ctx, w, h, strength) {
@@ -127,7 +190,7 @@ export class VideoLayer {
     ctx.fillRect(0, 0, w, h);
   }
 
-  region(ctx, drawable, layout, alpha, scale, edl, t, W, H, clip) {
+  region(ctx, drawable, layout, alpha, scale, edl, t, W, H, clip, kf = null, offsetX = 0) {
     const fit = edl?.style.fit ?? 'cover';
     const isBlurPad = fit === 'blur-pad' || fit === 'blur';
     const isContain = fit === 'contain';
@@ -135,9 +198,18 @@ export class VideoLayer {
       ? [{ x: 0, y: 0, w: W, h: H * 0.6, mode: 'contain' }, { x: 0, y: H * 0.6, w: W, h: H * 0.4, mode: 'cover' }]
       : [{ x: 0, y: 0, w: W, h: H, mode: isBlurPad ? 'blur-pad' : (isContain ? 'contain' : 'cover') }];
     const d = srcDims(drawable);
+    const kfOpacity = kf?.opacity ?? 1;
+    const kfScale = kf?.scale ?? 1;
+    const kfX = (kf?.x ?? 0) * W + (offsetX || 0) * W;
+    const kfY = (kf?.y ?? 0) * H;
+    const totalScale = scale * kfScale;
+
     for (const r of regions) {
       ctx.save();
-      ctx.globalAlpha = alpha;
+      if (clip?.blendMode && clip.blendMode !== 'normal') {
+        ctx.globalCompositeOperation = clip.blendMode;
+      }
+      ctx.globalAlpha = Math.max(0, Math.min(1, alpha * kfOpacity));
       ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
 
       const cx = r.x + r.w / 2;
@@ -152,9 +224,9 @@ export class VideoLayer {
       const bx = cx - bw / 2;
       const by = cy - bh / 2;
 
-      if (scale !== 1 || rot || flipH) {
-        ctx.translate(cx, cy);
-        if (scale !== 1) ctx.scale(scale, scale);
+      if (totalScale !== 1 || rot || flipH || kfX || kfY) {
+        ctx.translate(cx + kfX, cy + kfY);
+        if (totalScale !== 1) ctx.scale(totalScale, totalScale);
         if (flipH) ctx.scale(-1, 1);
         if (rot) ctx.rotate((rot * Math.PI) / 180);
         ctx.translate(-cx, -cy);

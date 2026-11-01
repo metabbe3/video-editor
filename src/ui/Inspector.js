@@ -6,6 +6,9 @@ import { timelineOf } from '../core/Compositor.js';
 import { CAPTION_LABELS } from './labels.js';
 import { EFFECTS, clampParams } from '../effects/clipfx.js';
 import { nextRotate, SPEED_CURVE_PRESETS } from '../../engine/clip-ops.js';
+import {
+  evalClipKeyframes, setKeyframe, removeKeyframe, findKeyframeNear, DEFAULT_KEYFRAME_VALUES,
+} from '../../engine/keyframes.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -17,6 +20,131 @@ export function renderInspector(app) {
   const head = document.createElement('div');
   head.className = 'ihead';
   el.appendChild(head);
+
+  // 1. Overlay inspector when an overlay is selected
+  if (app.selectedOverlayIndex != null && p.overlays?.[app.selectedOverlayIndex]) {
+    const oi = app.selectedOverlayIndex;
+    const o = p.overlays[oi];
+    head.textContent = `Inspector — Overlay (${o.type})`;
+    const x = document.createElement('span');
+    x.textContent = '✕';
+    x.style.cssText = 'margin-left:auto;cursor:pointer;color:var(--ink-2)';
+    x.onclick = () => { app.selectedOverlayIndex = null; renderInspector(app); };
+    head.appendChild(x);
+
+    // Text content
+    if (o.type === 'text') {
+      const txtRow = document.createElement('div');
+      txtRow.className = 'irow';
+      const txtLab = document.createElement('label');
+      txtLab.textContent = 'Text';
+      const txtIn = document.createElement('input');
+      txtIn.type = 'text';
+      txtIn.value = o.text || '';
+      txtIn.style.cssText = 'flex:1;background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);padding:3px 6px;border-radius:4px';
+      txtIn.oninput = () => app.updateOverlay(oi, { text: txtIn.value }, { quiet: true });
+      txtRow.append(txtLab, txtIn);
+      el.appendChild(txtRow);
+
+      // Font size
+      const fsRow = document.createElement('div');
+      fsRow.className = 'irow';
+      const fsLab = document.createElement('label');
+      fsLab.textContent = 'Font size';
+      const fsRng = document.createElement('input');
+      fsRng.type = 'range'; fsRng.min = '16'; fsRng.max = '96'; fsRng.step = '2';
+      fsRng.value = String(o.fontSize || 38);
+      const fsVal = document.createElement('span');
+      fsVal.style.cssText = 'font-family:var(--mono);font-size:11px;min-width:32px;text-align:right';
+      fsVal.textContent = `${fsRng.value}px`;
+      fsRng.oninput = () => {
+        fsVal.textContent = `${fsRng.value}px`;
+        app.updateOverlay(oi, { fontSize: Number(fsRng.value) }, { quiet: true });
+      };
+      fsRow.append(fsLab, fsRng, fsVal);
+      el.appendChild(fsRow);
+
+      // Color & Stroke
+      const colRow = document.createElement('div');
+      colRow.className = 'irow';
+      const cLab = document.createElement('label');
+      cLab.textContent = 'Color';
+      const cIn = document.createElement('input');
+      cIn.type = 'color';
+      cIn.value = o.color || '#ffffff';
+      cIn.onchange = () => app.updateOverlay(oi, { color: cIn.value });
+      const sLab = document.createElement('label');
+      sLab.textContent = 'Stroke';
+      const sIn = document.createElement('input');
+      sIn.type = 'color';
+      sIn.value = o.stroke || '#000000';
+      sIn.onchange = () => app.updateOverlay(oi, { stroke: sIn.value });
+      colRow.append(cLab, cIn, sLab, sIn);
+      el.appendChild(colRow);
+    } else {
+      // Sticker emoji or shape
+      kv(el, 'Sticker', o.char || o.shape || 'Sticker');
+    }
+
+    // Animation in/out
+    const animRow = document.createElement('div');
+    animRow.className = 'irow';
+    const inLab = document.createElement('label');
+    inLab.textContent = 'In:';
+    const inSel = document.createElement('select');
+    inSel.style.cssText = 'background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);border-radius:4px;font-size:11px;padding:2px 4px';
+    for (const a of ['pop', 'fade', 'slide']) {
+      const opt = document.createElement('option');
+      opt.value = a; opt.textContent = a;
+      if ((o.animIn || 'pop') === a) opt.selected = true;
+      inSel.appendChild(opt);
+    }
+    inSel.onchange = () => app.updateOverlay(oi, { animIn: inSel.value });
+
+    const outLab = document.createElement('label');
+    outLab.textContent = 'Out:';
+    const outSel = document.createElement('select');
+    outSel.style.cssText = 'background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);border-radius:4px;font-size:11px;padding:2px 4px';
+    for (const a of ['none', 'fade', 'pop', 'slide']) {
+      const opt = document.createElement('option');
+      opt.value = a; opt.textContent = a;
+      if ((o.animOut || 'fade') === a) opt.selected = true;
+      outSel.appendChild(opt);
+    }
+    outSel.onchange = () => app.updateOverlay(oi, { animOut: outSel.value });
+    animRow.append(inLab, inSel, outLab, outSel);
+    el.appendChild(animRow);
+
+    // Blend mode
+    const blendRow = document.createElement('div');
+    blendRow.className = 'irow';
+    const blendLab = document.createElement('label');
+    blendLab.textContent = 'Blend mode';
+    const blendSel = document.createElement('select');
+    blendSel.style.cssText = 'background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);border-radius:4px;font-size:11px;padding:2px 4px';
+    for (const bm of ['normal', 'multiply', 'screen', 'overlay', 'soft-light']) {
+      const opt = document.createElement('option');
+      opt.value = bm; opt.textContent = bm;
+      if ((o.blendMode || 'normal') === bm) opt.selected = true;
+      blendSel.appendChild(opt);
+    }
+    blendSel.onchange = () => app.updateOverlay(oi, { blendMode: blendSel.value === 'normal' ? undefined : blendSel.value });
+    blendRow.append(blendLab, blendSel);
+    el.appendChild(blendRow);
+
+    // Delete overlay button
+    const delBtn = document.createElement('button');
+    delBtn.className = 'tbtn';
+    delBtn.style.cssText = 'width:auto;margin-top:8px;padding:3px 12px;font-size:11.5px;color:var(--danger)';
+    delBtn.textContent = '🗑 Delete overlay';
+    delBtn.onclick = () => {
+      app.removeOverlay(oi);
+      app.selectedOverlayIndex = null;
+      renderInspector(app);
+    };
+    el.appendChild(delBtn);
+    return;
+  }
 
   if (!p.edl || app.selectedClipIndex == null) {
     head.textContent = 'Inspector — project';
@@ -105,7 +233,32 @@ export function renderInspector(app) {
     b.onclick = () => app.mutateClip(i, { speedCurve: pts || undefined });
     curveRow.appendChild(b);
   }
+  const isCustom = k.speedCurve && !Object.values(SPEED_CURVE_PRESETS).some((p) => JSON.stringify(p) === JSON.stringify(k.speedCurve));
+  const customBtn = document.createElement('button');
+  customBtn.className = 'tbtn';
+  customBtn.style.cssText = `width:auto;padding:1px 7px;font-size:11px${isCustom ? ';background:var(--accent);color:#fff;border-color:var(--accent)' : ''}`;
+  customBtn.textContent = 'Custom';
+  customBtn.onclick = () => {
+    const pts = k.speedCurve || [
+      { t: 0, v: 1.0 },
+      { t: 0.35, v: 2.0 },
+      { t: 0.65, v: 0.5 },
+      { t: 1.0, v: 1.0 },
+    ];
+    app.mutateClip(i, { speedCurve: pts });
+  };
+  curveRow.appendChild(customBtn);
   el.appendChild(curveRow);
+
+  // If a speed curve is active, render interactive graph editor canvas
+  if (k.speedCurve && k.speedCurve.length >= 2) {
+    const graphBox = document.createElement('div');
+    graphBox.style.cssText = 'padding:2px 0 6px 0';
+    renderSpeedGraphCanvas(graphBox, k, (newPts) => {
+      app.mutateClip(i, { speedCurve: newPts });
+    });
+    el.appendChild(graphBox);
+  }
 
   // ↻ Rotate & ⇄ Flip
   const orientRow = document.createElement('div');
@@ -265,6 +418,95 @@ export function renderInspector(app) {
     el.appendChild(invRow);
   }
 
+  // 🎨 Blend mode
+  const blendRow = document.createElement('div');
+  blendRow.className = 'irow';
+  const blendLab = document.createElement('label');
+  blendLab.textContent = '🎨 Blend mode';
+  const blendSel = document.createElement('select');
+  blendSel.style.cssText = 'background:var(--bg-raise);color:var(--ink);border:1px solid var(--border-soft);border-radius:4px;font-size:11px;padding:2px 6px';
+  for (const bm of ['normal', 'multiply', 'screen', 'overlay', 'soft-light']) {
+    const opt = document.createElement('option');
+    opt.value = bm; opt.textContent = bm;
+    if ((k.blendMode || 'normal') === bm) opt.selected = true;
+    blendSel.appendChild(opt);
+  }
+  blendSel.onchange = () => app.mutateClip(i, { blendMode: blendSel.value === 'normal' ? undefined : blendSel.value });
+  blendRow.append(blendLab, blendSel);
+  el.appendChild(blendRow);
+
+  // ◆ Keyframes manual
+  const kfSection = document.createElement('div');
+  kfSection.style.cssText = 'margin-top:6px;border-top:1px solid var(--border-soft);padding-top:6px';
+  const kfHead = document.createElement('div');
+  kfHead.style.cssText = 'font-size:11px;font-weight:600;color:var(--ink-2);margin-bottom:4px;display:flex;align-items:center;justify-content:space-between';
+  kfHead.textContent = '◆ Keyframes (at playhead)';
+  kfSection.appendChild(kfHead);
+
+  const playheadT = app.preview?.editedTime() ?? 0;
+  const segStart = tl.starts[i] ?? 0;
+  const segLocalT = Math.max(0, playheadT - segStart);
+  const segProg = seg?.dur > 0 ? Math.max(0, Math.min(1, segLocalT / seg.dur)) : 0;
+  const kfVals = evalClipKeyframes(k.keyframes, segProg);
+
+  const propConfigs = [
+    { key: 'scale', label: 'Scale', min: 0.5, max: 2.5, step: 0.05, unit: '×', def: 1.0 },
+    { key: 'x', label: 'Pos X', min: -0.8, max: 0.8, step: 0.02, unit: '', def: 0.0 },
+    { key: 'y', label: 'Pos Y', min: -0.8, max: 0.8, step: 0.02, unit: '', def: 0.0 },
+    { key: 'opacity', label: 'Opacity', min: 0, max: 1, step: 0.05, unit: '', def: 1.0 },
+  ];
+
+  for (const cfg of propConfigs) {
+    const row = document.createElement('div');
+    row.className = 'irow';
+    const lab = document.createElement('label');
+    lab.textContent = cfg.label;
+
+    const rng = document.createElement('input');
+    rng.type = 'range'; rng.min = String(cfg.min); rng.max = String(cfg.max); rng.step = String(cfg.step);
+    const curVal = kfVals[cfg.key] ?? cfg.def;
+    rng.value = String(curVal);
+
+    const valSpan = document.createElement('span');
+    valSpan.style.cssText = 'font-family:var(--mono);font-size:11px;min-width:32px;text-align:right';
+    valSpan.textContent = `${Number(curVal).toFixed(2)}${cfg.unit}`;
+
+    // ◆ Button
+    const track = k.keyframes?.[cfg.key] || [];
+    const hasKf = findKeyframeNear(track, segProg, 0.03);
+    const kfBtn = document.createElement('button');
+    kfBtn.className = 'tbtn';
+    kfBtn.style.cssText = `width:22px;height:22px;padding:0;font-size:11px;display:flex;align-items:center;justify-content:center;${hasKf ? 'background:#f59e0b;color:#000;border-color:#f59e0b' : 'color:var(--ink-2)'}`;
+    kfBtn.textContent = '◆';
+    kfBtn.title = hasKf ? 'Click to delete keyframe at playhead' : 'Click to add keyframe at playhead';
+
+    kfBtn.onclick = () => {
+      const nextKfs = { ...(k.keyframes || {}) };
+      let curTrack = [...(nextKfs[cfg.key] || [])];
+      if (hasKf) {
+        curTrack = removeKeyframe(curTrack, segProg);
+      } else {
+        curTrack = setKeyframe(curTrack, segProg, Number(rng.value), 'ease');
+      }
+      nextKfs[cfg.key] = curTrack;
+      app.mutateClip(i, { keyframes: nextKfs });
+    };
+
+    rng.oninput = () => {
+      valSpan.textContent = `${Number(rng.value).toFixed(2)}${cfg.unit}`;
+    };
+    rng.onchange = () => {
+      const nextKfs = { ...(k.keyframes || {}) };
+      const curTrack = setKeyframe(nextKfs[cfg.key] || [], segProg, Number(rng.value), 'ease');
+      nextKfs[cfg.key] = curTrack;
+      app.mutateClip(i, { keyframes: nextKfs });
+    };
+
+    row.append(lab, rng, valSpan, kfBtn);
+    kfSection.appendChild(row);
+  }
+  el.appendChild(kfSection);
+
   // actions
   const btns = document.createElement('div');
   btns.style.cssText = 'display:flex;gap:4px;margin-top:6px;flex-wrap:wrap';
@@ -294,4 +536,97 @@ function kv(el, k, v) {
   d.append(key, val);
   el.appendChild(d);
   return d;
+}
+
+export function renderSpeedGraphCanvas(container, clip, onUpdate) {
+  const pts = (clip.speedCurve && clip.speedCurve.length >= 2)
+    ? clip.speedCurve.map((p) => ({ ...p }))
+    : [
+        { t: 0, v: 1.0 },
+        { t: 0.35, v: 2.0 },
+        { t: 0.65, v: 0.6 },
+        { t: 1.0, v: 1.0 },
+      ];
+  const cv = document.createElement('canvas');
+  cv.width = 200; cv.height = 70;
+  cv.style.cssText = 'width:100%;height:70px;background:var(--bg-raise);border:1px solid var(--border-soft);border-radius:4px;margin-top:4px;cursor:crosshair';
+  container.appendChild(cv);
+  const ctx = cv.getContext('2d');
+
+  const pad = 12;
+  const W = cv.width - pad * 2;
+  const H = cv.height - pad * 2;
+
+  const toX = (t) => pad + t * W;
+  const toY = (v) => pad + (1 - (v - 0.25) / (4.0 - 0.25)) * H;
+  const fromX = (x) => Math.max(0, Math.min(1, (x - pad) / W));
+  const fromY = (y) => Math.max(0.25, Math.min(4.0, 0.25 + (1 - (y - pad) / H) * 3.75));
+
+  function draw() {
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    // Grid line for 1.0x normal speed
+    const y1 = toY(1.0);
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(pad, y1); ctx.lineTo(pad + W, y1); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Curve line
+    ctx.strokeStyle = '#1f6feb';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let j = 0; j < pts.length; j++) {
+      const px = toX(pts[j].t), py = toY(pts[j].v);
+      if (j === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Handles
+    for (let j = 0; j < pts.length; j++) {
+      const px = toX(pts[j].t), py = toY(pts[j].v);
+      ctx.fillStyle = '#f59e0b';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
+  }
+
+  draw();
+
+  let activePt = -1;
+  cv.addEventListener('pointerdown', (e) => {
+    const rect = cv.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (cv.width / rect.width);
+    const cy = (e.clientY - rect.top) * (cv.height / rect.height);
+    activePt = -1;
+    for (let j = 0; j < pts.length; j++) {
+      if (Math.hypot(cx - toX(pts[j].t), cy - toY(pts[j].v)) <= 10) {
+        activePt = j;
+        cv.setPointerCapture(e.pointerId);
+        break;
+      }
+    }
+  });
+
+  cv.addEventListener('pointermove', (e) => {
+    if (activePt < 0) return;
+    const rect = cv.getBoundingClientRect();
+    const cx = (e.clientX - rect.left) * (cv.width / rect.width);
+    const cy = (e.clientY - rect.top) * (cv.height / rect.height);
+    if (activePt > 0 && activePt < pts.length - 1) {
+      pts[activePt].t = +fromX(cx).toFixed(3);
+    }
+    pts[activePt].v = +fromY(cy).toFixed(2);
+    pts.sort((a, b) => a.t - b.t);
+    draw();
+  });
+
+  const onUp = () => {
+    if (activePt >= 0) {
+      activePt = -1;
+      onUpdate(pts);
+    }
+  };
+  cv.addEventListener('pointerup', onUp);
+  cv.addEventListener('pointercancel', onUp);
 }

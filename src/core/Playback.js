@@ -6,6 +6,7 @@
 
 import { timelineOf } from './Compositor.js';
 import { evalSpeedCurve, clipFadeGain } from '../../engine/clip-ops.js';
+import { computeDuckGainCurve } from '../../engine/duck.js';
 
 /** resolve when the element has data and no pending seek (bounded wait). */
 function settle(el) {
@@ -33,6 +34,40 @@ export function createPreview(canvas, getFile, compositor) {
   const els = [mkVideo(), mkVideo()]; // els[seg % 2] owns segment seg
   const brollEl = mkVideo();
   const voEl = document.createElement('audio');
+  const bgmEl = document.createElement('audio');
+
+  let bleepAc = null;
+  let bleepOsc = null;
+  let bleepGain = null;
+
+  function playBleepTone() {
+    if (bleepOsc) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      bleepAc ??= new AC();
+      if (bleepAc.state === 'suspended') bleepAc.resume();
+      bleepOsc = bleepAc.createOscillator();
+      bleepGain = bleepAc.createGain();
+      bleepOsc.type = 'sine';
+      bleepOsc.frequency.setValueAtTime(1000, bleepAc.currentTime);
+      bleepGain.gain.setValueAtTime(0.3, bleepAc.currentTime);
+      bleepOsc.connect(bleepGain);
+      bleepGain.connect(bleepAc.destination);
+      bleepOsc.start();
+    } catch {}
+  }
+
+  function stopBleepTone() {
+    if (bleepOsc) {
+      try {
+        bleepOsc.stop();
+        bleepOsc.disconnect();
+      } catch {}
+      bleepOsc = null;
+      bleepGain = null;
+    }
+  }
 
   const P = {
     edl: null, tl: null, seg: 0, playing: false, raf: 0, fadeIn: false,
@@ -52,6 +87,17 @@ export function createPreview(canvas, getFile, compositor) {
       this._bind(els[0]); this._bind(els[1]);
       this.seg = 0; this.fadeIn = false; this._freezeT0 = null; this._freezeLeft = 0;
       els.forEach((v) => (v.muted = true));
+      if (this.tl) {
+        this.duckCurve = computeDuckGainCurve({
+          words: edl.words || [],
+          tl: this.tl,
+          duration: this.tl.duration,
+          baseDb: edl.bgm?.gainDb ?? 0,
+          duckDb: edl.bgm?.duckDb ?? -12,
+          attackMs: 150,
+          releaseMs: 400,
+        });
+      }
       if (prevT > 0.02) this.seekTo(Math.min(prevT, this.tl.duration - 0.02));
       else this._park(0, els[this.active]), this._preload(1, els[1 - this.active]);
       this._draw();
@@ -96,6 +142,8 @@ export function createPreview(canvas, getFile, compositor) {
       els.forEach((v) => v.pause());
       brollEl.pause();
       voEl.pause();
+      bgmEl.pause();
+      stopBleepTone();
       if (this._freezeT0 != null) { // remember how much freeze is left
         const s = this.tl?.segments[this.seg];
         this._freezeLeft = Math.max(0, s.freeze - (performance.now() - this._freezeT0) / 1000);
@@ -125,7 +173,9 @@ export function createPreview(canvas, getFile, compositor) {
     },
     destroy() {
       this.pause();
-      els.forEach((v) => v.remove()); brollEl.remove(); voEl.remove();
+      stopBleepTone();
+      if (bleepAc) bleepAc.close().catch(() => {});
+      els.forEach((v) => v.remove()); brollEl.remove(); voEl.remove(); bgmEl.remove();
       urls.forEach((u) => URL.revokeObjectURL(u));
     },
     redraw() { this._draw(); },
@@ -226,6 +276,22 @@ export function createPreview(canvas, getFile, compositor) {
 
       // b-roll slot (muted overlay source)
       const t = this.editedTime();
+
+      // Per-word bleep censor check at edited time t:
+      const isBleeped = (this.edl.words || []).some((w) => {
+        if (!w.bleep) return false;
+        const ws = tl.sourceToEdited(w.start);
+        const we = tl.sourceToEdited(w.end);
+        return ws != null && we != null && t >= ws && t <= we;
+      });
+
+      if (isBleeped) {
+        el.volume = 0; // Mute speech during bleeped word
+        if (this.playing) playBleepTone();
+      } else {
+        stopBleepTone();
+      }
+
       const slot = (this.edl.broll || []).find((b) => t >= b.at && t < b.at + b.dur);
       if (slot && slot.src) {
         if (brollEl.src !== url(slot.src)) { brollEl.src = url(slot.src); brollEl.load(); }
@@ -235,7 +301,7 @@ export function createPreview(canvas, getFile, compositor) {
       } else if (!brollEl.paused) brollEl.pause();
 
       // audio overlay slot (voiceover)
-      const ao = (this.edl.audioOverlays || []).find((a) => t >= a.at && t < a.at + a.dur);
+      const ao = (this.edl.audioOverlays || []).find((a) => t >= a.at && t < a.at + a.dur && !a.isMusic);
       if (ao && ao.src) {
         if (voEl.src !== url(ao.src)) { voEl.src = url(ao.src); voEl.load(); }
         const want = t - ao.at;
@@ -244,6 +310,20 @@ export function createPreview(canvas, getFile, compositor) {
         if (this.playing && voEl.paused) voEl.play().catch(() => {});
       } else if (!voEl.paused) {
         voEl.pause();
+      }
+
+      // Background music track + auto-duck
+      const bgm = this.edl.bgm || (this.edl.audioOverlays || []).find((a) => a.isMusic);
+      if (bgm && bgm.src) {
+        if (bgmEl.src !== url(bgm.src)) { bgmEl.src = url(bgm.src); bgmEl.loop = true; bgmEl.load(); }
+        const want = (t - (bgm.at || 0)) % (bgmEl.duration || 3600);
+        if (want >= 0 && Math.abs(bgmEl.currentTime - want) > 0.25) bgmEl.currentTime = want;
+        const duckGain = (bgm.autoDuck !== false && this.duckCurve) ? this.duckCurve.getGainAt(t) : 1.0;
+        const userVol = bgm.volume ?? (10 ** ((bgm.gainDb ?? -20) / 20));
+        bgmEl.volume = Math.max(0, Math.min(1, userVol * duckGain * baseVol));
+        if (this.playing && bgmEl.paused) bgmEl.play().catch(() => {});
+      } else if (!bgmEl.paused) {
+        bgmEl.pause();
       }
 
       this._draw();
